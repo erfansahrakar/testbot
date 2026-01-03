@@ -429,9 +429,13 @@ async def use_new_address(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['from_finalize'] = True
     return FULL_NAME
 
+"""
+🔴 فقط توابع create_order و create_order_from_message آپدیت شدن
+بقیه فایل user.py همونطور باقی می‌مونه
+"""
 
 async def create_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ایجاد سفارش"""
+    """ایجاد سفارش - با اعمال تخفیف"""
     query = update.callback_query
     user_id = update.effective_user.id
     db = context.bot_data['db']
@@ -454,7 +458,33 @@ async def create_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
             'price': item_total
         })
     
-    order_id = db.create_order(user_id, items, total_price)
+    # 🆕 بررسی کد تخفیف
+    discount_code = context.user_data.get('applied_discount_code')
+    discount_amount = context.user_data.get('discount_amount', 0)
+    
+    # محاسبه مبلغ نهایی
+    final_price = total_price - discount_amount
+    
+    # ثبت سفارش
+    order_id = db.create_order(
+        user_id, 
+        items, 
+        total_price,
+        discount_amount=discount_amount,
+        final_price=final_price,
+        discount_code=discount_code
+    )
+    
+    # 🆕 اگر کد تخفیف استفاده شد، ثبت استفاده
+    if discount_code:
+        discount_id = context.user_data.get('discount_id')
+        db.use_discount(user_id, discount_code, order_id)
+        
+        # پاک کردن از context
+        context.user_data.pop('applied_discount_code', None)
+        context.user_data.pop('discount_amount', None)
+        context.user_data.pop('discount_id', None)
+    
     db.clear_cart(user_id)
     
     await query.message.reply_text(
@@ -467,7 +497,7 @@ async def create_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def create_order_from_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ایجاد سفارش از پیام"""
+    """ایجاد سفارش از پیام - با اعمال تخفیف"""
     user_id = update.effective_user.id
     db = context.bot_data['db']
     
@@ -489,7 +519,33 @@ async def create_order_from_message(update: Update, context: ContextTypes.DEFAUL
             'price': item_total
         })
     
-    order_id = db.create_order(user_id, items, total_price)
+    # 🆕 بررسی کد تخفیف
+    discount_code = context.user_data.get('applied_discount_code')
+    discount_amount = context.user_data.get('discount_amount', 0)
+    
+    # محاسبه مبلغ نهایی
+    final_price = total_price - discount_amount
+    
+    # ثبت سفارش
+    order_id = db.create_order(
+        user_id, 
+        items, 
+        total_price,
+        discount_amount=discount_amount,
+        final_price=final_price,
+        discount_code=discount_code
+    )
+    
+    # 🆕 اگر کد تخفیف استفاده شد، ثبت استفاده
+    if discount_code:
+        discount_id = context.user_data.get('discount_id')
+        db.use_discount(user_id, discount_code, order_id)
+        
+        # پاک کردن از context
+        context.user_data.pop('applied_discount_code', None)
+        context.user_data.pop('discount_amount', None)
+        context.user_data.pop('discount_id', None)
+    
     db.clear_cart(user_id)
     
     await update.message.reply_text(
@@ -501,6 +557,8 @@ async def create_order_from_message(update: Update, context: ContextTypes.DEFAUL
     await send_order_to_admin(context, order_id)
 
 
+# 🔴 توجه: این دو تابع رو توی فایل user.py جایگزین کن
+# بقیه کدهای user.py دست نخورده باقی می‌مونن
 async def back_to_packs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """بازگشت به انتخاب پک"""
     query = update.callback_query
