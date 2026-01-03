@@ -543,7 +543,8 @@ async def show_final_invoice(update, context, order_id):
     if not order:
         return
     
-    order_id_val, user_id, items_json, total_price, status, receipt, shipping_method, created_at = order
+    # 🔴 اصلاح شده: 11 فیلد به جای 8 فیلد
+    order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at = order
     items = json.loads(items_json)
     user = db.get_user(user_id)
     
@@ -556,8 +557,16 @@ async def show_final_invoice(update, context, order_id):
         invoice_text += f"   تعداد: {item['quantity']} پک\n"
         invoice_text += f"   قیمت: {item['price']:,.0f} تومان\n\n"
     
-    invoice_text += f"💰 **جمع کل:** {total_price:,.0f} تومان\n\n"
-    invoice_text += "═" * 25 + "\n\n"
+    invoice_text += f"💰 **جمع کل:** {total_price:,.0f} تومان\n"
+    
+    # نمایش تخفیف اگر وجود داشته باشد
+    if discount_amount > 0:
+        invoice_text += f"🎁 **تخفیف:** {discount_amount:,.0f} تومان\n"
+        if discount_code:
+            invoice_text += f"🎫 **کد تخفیف:** {discount_code}\n"
+        invoice_text += f"💳 **مبلغ نهایی:** {final_price:,.0f} تومان\n"
+    
+    invoice_text += "\n═" * 25 + "\n\n"
     
     # مشخصات گیرنده - همه در یک بخش
     invoice_text += "👤 **مشخصات گیرنده:**\n"
@@ -726,7 +735,8 @@ async def view_my_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
     
     for order in orders:
-        order_id, user_id, items_json, total_price, status, receipt, shipping_method, created_at = order
+        # 🔴 اصلاح شده: 11 فیلد
+        order_id, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at = order
         items = json.loads(items_json)
         
         text = f"📋 **سفارش #{order_id}**\n\n"
@@ -739,6 +749,10 @@ async def view_my_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text += f"   تعداد: {item['quantity']} پک\n"
         
         text += f"\n💰 مبلغ کل: {total_price:,.0f} تومان"
+        
+        if discount_amount > 0:
+            text += f"\n🎁 تخفیف: {discount_amount:,.0f} تومان"
+            text += f"\n💳 مبلغ نهایی: {final_price:,.0f} تومان"
         
         if shipping_method:
             text += f"\n📦 نحوه ارسال: {shipping_method}"
