@@ -1,9 +1,10 @@
 """
 هندلرهای مربوط به پنل ادمین
+🔴 FIX باگ 1: ذخیره صحیح channel_message_id
 """
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
-from config import ADMIN_ID, MESSAGES
+from config import ADMIN_ID, MESSAGES, CHANNEL_USERNAME
 from states import PRODUCT_NAME, PRODUCT_DESC, PRODUCT_PHOTO, PACK_NAME, PACK_QUANTITY, PACK_PRICE
 from keyboards import (
     admin_main_keyboard, 
@@ -236,11 +237,9 @@ async def view_packs(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def get_channel_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ارسال محصول به کانال"""
+    """🔴 FIX باگ 1: ارسال محصول به کانال + ذخیره message_id"""
     query = update.callback_query
     await query.answer()
-    
-    from config import CHANNEL_USERNAME
     
     if not CHANNEL_USERNAME or CHANNEL_USERNAME == "your_channel_username":
         await query.message.reply_text(
@@ -279,8 +278,6 @@ async def get_channel_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     caption += "\n💎 برای سفارش روی دکمه پک مورد نظر کلیک کنید 👇"
     
     # ساخت کیبورد با دکمه‌های کوتاه
-    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-    
     keyboard = []
     
     # دکمه‌های پک‌ها
@@ -302,8 +299,10 @@ async def get_channel_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # ارسال به کانال
     try:
+        sent_message = None
+        
         if photo_id:
-            await context.bot.send_photo(
+            sent_message = await context.bot.send_photo(
                 chat_id=f"@{CHANNEL_USERNAME}",
                 photo=photo_id,
                 caption=caption,
@@ -311,17 +310,30 @@ async def get_channel_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
         else:
-            await context.bot.send_message(
+            sent_message = await context.bot.send_message(
                 chat_id=f"@{CHANNEL_USERNAME}",
                 text=caption,
                 parse_mode='Markdown',
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
         
-        await query.message.reply_text(
-            "✅ محصول با موفقیت در کانال منتشر شد!\n\n"
-            f"🔗 @{CHANNEL_USERNAME}"
-        )
+        # 🔴 FIX باگ 1: ذخیره message_id
+        if sent_message:
+            message_id = sent_message.message_id
+            success = db.save_channel_message_id(product_id, message_id)
+            
+            if success:
+                await query.message.reply_text(
+                    f"✅ محصول با موفقیت در کانال منتشر شد!\n\n"
+                    f"🔗 @{CHANNEL_USERNAME}\n"
+                    f"📝 Message ID: {message_id} (ذخیره شد)"
+                )
+            else:
+                await query.message.reply_text(
+                    f"⚠️ محصول ارسال شد اما message_id ذخیره نشد!\n\n"
+                    f"🔗 @{CHANNEL_USERNAME}\n"
+                    f"📝 Message ID: {message_id}"
+                )
         
     except Exception as e:
         error_msg = str(e)
