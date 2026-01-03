@@ -404,7 +404,7 @@ def main():
     application.add_handler(CallbackQueryHandler(cancel_broadcast, pattern="^cancel_broadcast$"))
     
     # گزارش‌های تحلیلی - موقتاً غیرفعال
-     application.add_handler(CallbackQueryHandler(handle_analytics_report, pattern="^analytics:"))
+    application.add_handler(CallbackQueryHandler(handle_analytics_report, pattern="^analytics:"))
     
     # ==================== Message هندلرها ====================
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_messages))
