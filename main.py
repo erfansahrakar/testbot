@@ -166,7 +166,7 @@ def main():
         broadcast_message_received, confirm_broadcast, cancel_broadcast
     )
     
-    Import توابع analytics - موقتاً غیرفعال
+    # Import توابع analytics
     from handlers.analytics import handle_analytics_report
     
     # ایجاد دیتابیس
