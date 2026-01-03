@@ -1,5 +1,6 @@
 """
 هندلرهای مربوط به کاربران
+🔴 FIX باگ 3: سیستم خرید بر اساس عدد (نه پک)
 """
 import json
 from telegram import Update
@@ -46,10 +47,12 @@ async def user_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 _, _, pack_name, quantity, price = pack
                 _, prod_name, *_ = product
                 
+                # 🔴 FIX باگ 3: نمایش به عدد
                 text = f"🏷 **{prod_name}**\n\n"
                 text += f"📦 {pack_name}\n"
-                text += f"💰 قیمت: {price:,.0f} تومان\n\n"
-                text += "🔢 چند پک می‌خواهید؟"
+                text += f"💰 قیمت: {price:,.0f} تومان\n"
+                text += f"🔢 هر بار کلیک = {quantity} عدد\n\n"
+                text += "چند بار می‌خواهید اضافه کنید؟"
                 
                 await update.message.reply_text(
                     text,
@@ -102,7 +105,7 @@ async def show_product(update: Update, context: ContextTypes.DEFAULT_TYPE, produ
 
 
 async def handle_pack_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """انتخاب پک توسط کاربر - افزودن مستقیم به سبد"""
+    """🔴 FIX باگ 3: انتخاب پک - افزودن مستقیم به سبد (بر اساس عدد)"""
     query = update.callback_query
     
     data = query.data.split(":")
@@ -126,29 +129,35 @@ async def handle_pack_selection(update: Update, context: ContextTypes.DEFAULT_TY
     _, _, pack_name, pack_qty, price = pack
     _, prod_name, *_ = product
     
-    # افزودن 1 پک به سبد خرید
+    # 🔴 FIX باگ 3: افزودن 1 بار کلیک = pack_qty عدد
+    # مثلاً پک 6 تایی = 6 عدد اضافه میشه
     db.add_to_cart(user_id, product_id, pack_id, quantity=1)
     
-    # محاسبه تعداد کل این پک در سبد
+    # محاسبه تعداد کل در سبد
     cart = db.get_cart(user_id)
-    total_this_pack = 0
+    total_this_pack_count = 0  # تعداد عدد
     total_price_this_pack = 0
     total_items = 0
     total_price_all = 0
     
     for item in cart:
-        cart_id, p_name, pk_name, pk_qty, pk_price, qty = item
-        if pk_name == pack_name and p_name == prod_name:
-            total_this_pack += qty
-            total_price_this_pack += pk_price * qty
+        cart_id, p_name, pk_name, pk_qty, pk_price, item_qty = item
         
-        total_items += pk_qty * qty
-        total_price_all += pk_price * qty
+        # item_qty حالا = تعداد عدد (نه پک)
+        if pk_name == pack_name and p_name == prod_name:
+            total_this_pack_count += item_qty
+            # قیمت واحد = قیمت پک / تعداد توی پک
+            unit_price = pk_price / pk_qty
+            total_price_this_pack += unit_price * item_qty
+        
+        total_items += item_qty
+        unit_price = pk_price / pk_qty
+        total_price_all += unit_price * item_qty
     
     # نمایش Alert
-    alert_text = f"✅ اضافه شد!\n\n"
+    alert_text = f"✅ {pack_qty} عدد اضافه شد!\n\n"
     alert_text += f"📦 {pack_name}\n"
-    alert_text += f"🔢 تعداد در سبد: {total_this_pack} پک\n"
+    alert_text += f"🔢 تعداد در سبد: {total_this_pack_count} عدد\n"
     alert_text += f"💰 {total_price_this_pack:,.0f} تومان\n\n"
     alert_text += f"📊 کل کالاها در سبد: {total_items} عدد\n"
     alert_text += f"💳 جمع کل: {total_price_all:,.0f} تومان\n\n"
@@ -158,7 +167,7 @@ async def handle_pack_selection(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def view_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """نمایش سبد خرید"""
+    """🔴 FIX باگ 3: نمایش سبد خرید (با عدد)"""
     user_id = update.effective_user.id
     db = context.bot_data['db']
     
@@ -177,12 +186,17 @@ async def view_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     total_price = 0
     
     for item in cart:
-        cart_id, product_name, pack_name, pack_qty, price, quantity = item
-        item_total = price * quantity
+        cart_id, product_name, pack_name, pack_qty, pack_price, item_qty = item
+        
+        # 🔴 FIX باگ 3: محاسبه با عدد
+        # item_qty = تعداد عدد (مثلاً 12)
+        # pack_qty = تعداد توی پک (مثلاً 6)
+        unit_price = pack_price / pack_qty
+        item_total = unit_price * item_qty
         total_price += item_total
         
         text += f"🏷 {product_name}\n"
-        text += f"📦 {pack_name} ({quantity} پک)\n"
+        text += f"📦 {pack_name} ({item_qty} عدد)\n"
         text += f"💰 {item_total:,.0f} تومان\n\n"
     
     text += f"💳 جمع کل: {total_price:,.0f} تومان"
@@ -235,8 +249,6 @@ async def finalize_order_start(update: Update, context: ContextTypes.DEFAULT_TYP
     user = db.get_user(user_id)
     
     # بررسی اطلاعات کاربر
-    # user[3]=full_name, user[4]=phone, user[5]=landline, user[6]=address, user[7]=shop_name
-    
     has_full_info = (
         user[3] and  # full_name
         user[4] and  # phone
@@ -244,7 +256,7 @@ async def finalize_order_start(update: Update, context: ContextTypes.DEFAULT_TYP
     )
     
     if not has_full_info:
-        # اطلاعات کامل نیست - باید وارد کنه
+        # اطلاعات کامل نیست
         await query.message.reply_text(
             "📝 لطفاً **نام و نام خانوادگی** خود را وارد کنید:",
             parse_mode='Markdown',
@@ -252,16 +264,16 @@ async def finalize_order_start(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         return FULL_NAME
     else:
-        # نمایش اطلاعات قبلی و سوال تایید
+        # نمایش اطلاعات قبلی
         from keyboards import confirm_info_keyboard
         
         info_text = "📋 **مشخصات شما:**\n\n"
         info_text += f"👤 نام: {user[3]}\n"
         info_text += f"📱 موبایل: {user[4]}\n"
-        if user[5]:  # landline
+        if user[5]:
             info_text += f"☎️ ثابت: {user[5]}\n"
         info_text += f"📍 آدرس: {user[6]}\n"
-        if len(user) > 7 and user[7]:  # shop_name
+        if len(user) > 7 and user[7]:
             info_text += f"🏪 فروشگاه: {user[7]}\n"
         
         info_text += "\n❓ **آیا اطلاعات صحیح است؟**"
@@ -280,7 +292,6 @@ async def full_name_received(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("لغو شد.", reply_markup=user_main_keyboard())
         return ConversationHandler.END
     
-    # ذخیره نام
     context.user_data['temp_full_name'] = update.message.text
     
     await update.message.reply_text(
@@ -298,7 +309,6 @@ async def address_text_received(update: Update, context: ContextTypes.DEFAULT_TY
         await update.message.reply_text("لغو شد.", reply_markup=user_main_keyboard())
         return ConversationHandler.END
     
-    # ذخیره آدرس
     context.user_data['temp_address'] = update.message.text
     
     await update.message.reply_text(
@@ -319,12 +329,11 @@ async def phone_number_received(update: Update, context: ContextTypes.DEFAULT_TY
     user_id = update.effective_user.id
     db = context.bot_data['db']
     
-    # دریافت اطلاعات از context
     full_name = context.user_data.get('temp_full_name', '')
     address = context.user_data.get('temp_address', '')
     phone = update.message.text
     
-    # ذخیره اطلاعات در دیتابیس
+    # ذخیره اطلاعات
     db.update_user_info(
         user_id, 
         phone=phone, 
@@ -332,7 +341,6 @@ async def phone_number_received(update: Update, context: ContextTypes.DEFAULT_TY
         full_name=full_name
     )
     
-    # پاک کردن اطلاعات موقت
     context.user_data.pop('temp_full_name', None)
     context.user_data.pop('temp_address', None)
     
@@ -340,7 +348,6 @@ async def phone_number_received(update: Update, context: ContextTypes.DEFAULT_TY
     is_editing_address = context.user_data.get('editing_address', False)
     is_editing_for_order = context.user_data.get('editing_for_order', False)
     
-    # حالت 1: ویرایش آدرس عادی (از منوی "آدرس ثبت شده من")
     if is_editing_address and not is_editing_for_order:
         context.user_data.pop('editing_address', None)
         await update.message.reply_text(
@@ -349,25 +356,21 @@ async def phone_number_received(update: Update, context: ContextTypes.DEFAULT_TY
         )
         return ConversationHandler.END
     
-    # حالت 2: ویرایش برای سفارش (وقتی کاربر "خیر، ویرایش مشخصات" رو زده)
     if is_editing_for_order:
         context.user_data.pop('editing_for_order', None)
-        context.user_data.pop('editing_address', None)  # پاک کردن هر دو flag
+        context.user_data.pop('editing_address', None)
         
-        # نمایش پیام تایید ویرایش
         await update.message.reply_text(
             "✅ مشخصات شما ویرایش شد!",
             reply_markup=user_main_keyboard()
         )
         
-        # نمایش اطلاعات جدید و درخواست تایید نهایی
         from keyboards import confirm_info_keyboard
         
         info_text = "📋 **مشخصات جدید شما:**\n\n"
         info_text += f"👤 نام: {full_name}\n"
         info_text += f"📱 موبایل: {phone}\n"
         info_text += f"📍 آدرس: {address}\n"
-        
         info_text += "\n❓ **آیا اطلاعات صحیح است؟**"
         
         await update.message.reply_text(
@@ -378,7 +381,7 @@ async def phone_number_received(update: Update, context: ContextTypes.DEFAULT_TY
         
         return ConversationHandler.END
     
-    # حالت 3: ثبت سفارش اولیه (اولین بار که اطلاعات رو وارد می‌کنه)
+    # ثبت سفارش اولیه
     await create_order_from_message(update, context)
     return ConversationHandler.END
 
@@ -388,7 +391,6 @@ async def confirm_user_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer("✅ اطلاعات تایید شد")
     
-    # ثبت سفارش
     await create_order(update, context)
 
 
@@ -405,7 +407,10 @@ async def edit_user_info_for_order(update: Update, context: ContextTypes.DEFAULT
     
     context.user_data['editing_for_order'] = True
     return FULL_NAME
-
+"""
+ادامه فایل user.py - بخش ثبت سفارش
+🔴 FIX باگ 3: ثبت سفارش با unit_price
+"""
 
 async def use_old_address(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """استفاده از آدرس قبلی"""
@@ -429,13 +434,9 @@ async def use_new_address(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['from_finalize'] = True
     return FULL_NAME
 
-"""
-🔴 فقط توابع create_order و create_order_from_message آپدیت شدن
-بقیه فایل user.py همونطور باقی می‌مونه
-"""
 
 async def create_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ایجاد سفارش - با اعمال تخفیف"""
+    """🔴 FIX باگ 3: ایجاد سفارش با unit_price"""
     query = update.callback_query
     user_id = update.effective_user.id
     db = context.bot_data['db']
@@ -447,22 +448,29 @@ async def create_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     items = []
     total_price = 0
+    
     for item in cart:
-        cart_id, product_name, pack_name, pack_qty, price, quantity = item
-        item_total = price * quantity
+        cart_id, product_name, pack_name, pack_qty, pack_price, item_qty = item
+        
+        # 🔴 FIX باگ 3: محاسبه با unit_price
+        unit_price = pack_price / pack_qty  # قیمت هر عدد
+        item_total = unit_price * item_qty
         total_price += item_total
+        
         items.append({
             'product': product_name,
             'pack': pack_name,
-            'quantity': quantity,
-            'price': item_total
+            'pack_quantity': pack_qty,  # 🔴 ذخیره تعداد توی پک
+            'unit_price': unit_price,  # 🔴 ذخیره قیمت واحد
+            'quantity': item_qty,  # 🔴 این عدد است (نه پک)
+            'price': item_total,
+            'pack_price': pack_price  # برای محاسبات بعدی
         })
     
-    # 🆕 بررسی کد تخفیف
+    # بررسی کد تخفیف
     discount_code = context.user_data.get('applied_discount_code')
     discount_amount = context.user_data.get('discount_amount', 0)
     
-    # محاسبه مبلغ نهایی
     final_price = total_price - discount_amount
     
     # ثبت سفارش
@@ -475,12 +483,11 @@ async def create_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
         discount_code=discount_code
     )
     
-    # 🆕 اگر کد تخفیف استفاده شد، ثبت استفاده
+    # ثبت استفاده از تخفیف
     if discount_code:
         discount_id = context.user_data.get('discount_id')
         db.use_discount(user_id, discount_code, order_id)
         
-        # پاک کردن از context
         context.user_data.pop('applied_discount_code', None)
         context.user_data.pop('discount_amount', None)
         context.user_data.pop('discount_id', None)
@@ -497,7 +504,7 @@ async def create_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def create_order_from_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ایجاد سفارش از پیام - با اعمال تخفیف"""
+    """🔴 FIX باگ 3: ایجاد سفارش از پیام با unit_price"""
     user_id = update.effective_user.id
     db = context.bot_data['db']
     
@@ -508,22 +515,29 @@ async def create_order_from_message(update: Update, context: ContextTypes.DEFAUL
     
     items = []
     total_price = 0
+    
     for item in cart:
-        cart_id, product_name, pack_name, pack_qty, price, quantity = item
-        item_total = price * quantity
+        cart_id, product_name, pack_name, pack_qty, pack_price, item_qty = item
+        
+        # 🔴 FIX باگ 3: محاسبه با unit_price
+        unit_price = pack_price / pack_qty
+        item_total = unit_price * item_qty
         total_price += item_total
+        
         items.append({
             'product': product_name,
             'pack': pack_name,
-            'quantity': quantity,
-            'price': item_total
+            'pack_quantity': pack_qty,  # 🔴
+            'unit_price': unit_price,  # 🔴
+            'quantity': item_qty,  # 🔴 عدد
+            'price': item_total,
+            'pack_price': pack_price
         })
     
-    # 🆕 بررسی کد تخفیف
+    # بررسی کد تخفیف
     discount_code = context.user_data.get('applied_discount_code')
     discount_amount = context.user_data.get('discount_amount', 0)
     
-    # محاسبه مبلغ نهایی
     final_price = total_price - discount_amount
     
     # ثبت سفارش
@@ -536,12 +550,11 @@ async def create_order_from_message(update: Update, context: ContextTypes.DEFAUL
         discount_code=discount_code
     )
     
-    # 🆕 اگر کد تخفیف استفاده شد، ثبت استفاده
+    # ثبت استفاده از تخفیف
     if discount_code:
         discount_id = context.user_data.get('discount_id')
         db.use_discount(user_id, discount_code, order_id)
         
-        # پاک کردن از context
         context.user_data.pop('applied_discount_code', None)
         context.user_data.pop('discount_amount', None)
         context.user_data.pop('discount_id', None)
@@ -557,8 +570,6 @@ async def create_order_from_message(update: Update, context: ContextTypes.DEFAUL
     await send_order_to_admin(context, order_id)
 
 
-# 🔴 توجه: این دو تابع رو توی فایل user.py جایگزین کن
-# بقیه کدهای user.py دست نخورده باقی می‌مونن
 async def back_to_packs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """بازگشت به انتخاب پک"""
     query = update.callback_query
@@ -593,7 +604,7 @@ async def handle_shipping_selection(update: Update, context: ContextTypes.DEFAUL
 
 
 async def show_final_invoice(update, context, order_id):
-    """نمایش فاکتور نهایی"""
+    """🔴 FIX باگ 3: نمایش فاکتور نهایی (با عدد)"""
     query = update.callback_query if hasattr(update, 'callback_query') else None
     db = context.bot_data['db']
     
@@ -601,7 +612,6 @@ async def show_final_invoice(update, context, order_id):
     if not order:
         return
     
-    # 🔴 اصلاح شده: 11 فیلد به جای 8 فیلد
     order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at = order
     items = json.loads(items_json)
     user = db.get_user(user_id)
@@ -612,12 +622,12 @@ async def show_final_invoice(update, context, order_id):
     invoice_text += "🛍 **محصولات:**\n"
     for item in items:
         invoice_text += f"▫️ {item['product']} - {item['pack']}\n"
-        invoice_text += f"   تعداد: {item['quantity']} پک\n"
+        # 🔴 FIX باگ 3: نمایش عدد
+        invoice_text += f"   تعداد: {item['quantity']} عدد\n"
         invoice_text += f"   قیمت: {item['price']:,.0f} تومان\n\n"
     
     invoice_text += f"💰 **جمع کل:** {total_price:,.0f} تومان\n"
     
-    # نمایش تخفیف اگر وجود داشته باشد
     if discount_amount > 0:
         invoice_text += f"🎁 **تخفیف:** {discount_amount:,.0f} تومان\n"
         if discount_code:
@@ -626,17 +636,16 @@ async def show_final_invoice(update, context, order_id):
     
     invoice_text += "\n═" * 25 + "\n\n"
     
-    # مشخصات گیرنده - همه در یک بخش
     invoice_text += "👤 **مشخصات گیرنده:**\n"
-    if user[3]:  # full_name
+    if user[3]:
         invoice_text += f"▫️ نام: {user[3]}\n"
-    if user[4]:  # phone
+    if user[4]:
         invoice_text += f"▫️ موبایل: {user[4]}\n"
-    if user[5]:  # landline - اصلاح: از ایندکس 5 استفاده کنیم
+    if user[5]:
         invoice_text += f"▫️ ثابت: {user[5]}\n"
-    if len(user) > 6 and user[6]:  # address
+    if len(user) > 6 and user[6]:
         invoice_text += f"▫️ آدرس: {user[6]}\n"
-    if len(user) > 7 and user[7]:  # shop_name
+    if len(user) > 7 and user[7]:
         invoice_text += f"▫️ فروشگاه: {user[7]}\n"
     
     invoice_text += "\n"
@@ -774,7 +783,7 @@ async def edit_address(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def view_my_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """نمایش سفارشات کاربر"""
+    """🔴 FIX باگ 3: نمایش سفارشات (با عدد)"""
     user_id = update.effective_user.id
     db = context.bot_data['db']
     orders = db.get_user_orders(user_id)
@@ -793,7 +802,6 @@ async def view_my_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
     
     for order in orders:
-        # 🔴 اصلاح شده: 11 فیلد
         order_id, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at = order
         items = json.loads(items_json)
         
@@ -803,8 +811,9 @@ async def view_my_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         text += "🛍 محصولات:\n"
         for item in items:
+            # 🔴 FIX باگ 3: نمایش عدد
             text += f"▫️ {item['product']} - {item['pack']}\n"
-            text += f"   تعداد: {item['quantity']} پک\n"
+            text += f"   تعداد: {item['quantity']} عدد\n"
         
         text += f"\n💰 مبلغ کل: {total_price:,.0f} تومان"
         
