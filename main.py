@@ -51,7 +51,7 @@ async def handle_text_messages(update: Update, context):
     from handlers.discount import discount_menu
     from handlers.broadcast import broadcast_start
     from backup_scheduler import manual_backup
-    # from handlers.analytics import send_analytics_menu  # موقتاً غیرفعال
+    from handlers.analytics import send_analytics_menu  # موقتاً غیرفعال
     
     # دستورات ادمین
     if user_id == ADMIN_ID:
@@ -71,8 +71,8 @@ async def handle_text_messages(update: Update, context):
             return await manual_backup(update, context)
         elif text == "📊 آمار":
             return await show_statistics(update, context)
-        # elif text == "📈 گزارش‌های تحلیلی":
-        #     return await send_analytics_menu(update, context)
+        elif text == "📈 گزارش‌های تحلیلی":
+            return await send_analytics_menu(update, context)
     
     # دستورات کاربر
     if text == "🛒 سبد خرید":
@@ -166,8 +166,8 @@ def main():
         broadcast_message_received, confirm_broadcast, cancel_broadcast
     )
     
-    # Import توابع analytics - موقتاً غیرفعال
-    # from handlers.analytics import handle_analytics_report
+    Import توابع analytics - موقتاً غیرفعال
+    from handlers.analytics import handle_analytics_report
     
     # ایجاد دیتابیس
     db = Database()
@@ -404,7 +404,7 @@ def main():
     application.add_handler(CallbackQueryHandler(cancel_broadcast, pattern="^cancel_broadcast$"))
     
     # گزارش‌های تحلیلی - موقتاً غیرفعال
-    # application.add_handler(CallbackQueryHandler(handle_analytics_report, pattern="^analytics:"))
+     application.add_handler(CallbackQueryHandler(handle_analytics_report, pattern="^analytics:"))
     
     # ==================== Message هندلرها ====================
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_messages))
