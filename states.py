@@ -22,3 +22,9 @@ DISCOUNT_START, DISCOUNT_END = range(21, 23)
 
 # State پیام دسته‌جمعی
 BROADCAST_MESSAGE = 23
+
+# 🆕 State برای وارد کردن کد تخفیف توسط کاربر
+ENTER_DISCOUNT_CODE = 24
+
+# 🆕 State برای ویرایش تعداد آیتم توسط ادمین
+EDIT_ITEM_QUANTITY = 25
