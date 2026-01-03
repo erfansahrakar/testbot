@@ -16,8 +16,8 @@ async def send_order_to_admin(context: ContextTypes.DEFAULT_TYPE, order_id: int)
     if not order:
         return
     
-    # تغییر: 8 فیلد به جای 7
-    order_id_val, user_id, items_json, total_price, status, receipt, shipping_method, created_at = order
+    # تغییر: 11 فیلد
+    order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at = order
     items = json.loads(items_json)
     user = db.get_user(user_id)
     
@@ -40,8 +40,15 @@ async def send_order_to_admin(context: ContextTypes.DEFAULT_TYPE, order_id: int)
         text += f"  تعداد: {item['quantity']} پک\n"
         text += f"  قیمت: {item['price']:,.0f} تومان\n\n"
     
-    text += f"💰 جمع کل: {total_price:,.0f} تومان\n\n"
-    text += f"📅 تاریخ: {created_at}"
+    text += f"💰 جمع کل: {total_price:,.0f} تومان\n"
+    
+    if discount_amount > 0:
+        text += f"🎁 تخفیف: {discount_amount:,.0f} تومان\n"
+        if discount_code:
+            text += f"🎫 کد تخفیف: {discount_code}\n"
+        text += f"💳 مبلغ نهایی: {final_price:,.0f} تومان\n"
+    
+    text += f"\n📅 تاریخ: {created_at}"
     
     await context.bot.send_message(
         ADMIN_ID,
@@ -60,8 +67,8 @@ async def view_pending_orders(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
     
     for order in orders:
-        # تغییر: 8 فیلد به جای 7
-        order_id, user_id, items_json, total_price, status, receipt, shipping_method, created_at = order
+        # تغییر: 11 فیلد
+        order_id, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at = order
         items = json.loads(items_json)
         user = db.get_user(user_id)
         
@@ -81,7 +88,11 @@ async def view_pending_orders(update: Update, context: ContextTypes.DEFAULT_TYPE
         for item in items:
             text += f"• {item['product']} ({item['pack']}) x{item['quantity']}\n"
         
-        text += f"\n💰 {total_price:,.0f} تومان"
+        text += f"\n💰 جمع: {total_price:,.0f} تومان"
+        
+        if discount_amount > 0:
+            text += f"\n🎁 تخفیف: {discount_amount:,.0f} تومان"
+            text += f"\n💳 نهایی: {final_price:,.0f} تومان"
         
         await update.message.reply_text(
             text,
@@ -103,10 +114,10 @@ async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # پیام به کاربر
     order = db.get_order(order_id)
     user_id = order[1]
-    total_price = order[3]
+    final_price = order[5]  # فیلد final_price در ایندکس 5
     
     message = MESSAGES["order_confirmed"].format(
-        amount=f"{total_price:,.0f}",
+        amount=f"{final_price:,.0f}",
         card=CARD_NUMBER,
         holder=CARD_HOLDER
     )
@@ -132,7 +143,8 @@ async def reject_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("❌ سفارش یافت نشد!", show_alert=True)
         return
     
-    order_id_val, user_id, items_json, total_price, status, receipt, shipping_method, created_at = order
+    # تغییر: 11 فیلد
+    order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at = order
     items = json.loads(items_json)
     
     # نمایش لیست آیتم‌ها برای حذف
@@ -146,7 +158,7 @@ async def reject_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text += f"{idx + 1}. {item['product']} - {item['pack']}\n"
         text += f"   💰 {item['price']:,.0f} تومان\n\n"
     
-    text += f"💳 جمع کل: {total_price:,.0f} تومان"
+    text += f"💳 جمع کل: {final_price:,.0f} تومان"
     
     await query.edit_message_text(
         text,
@@ -171,7 +183,8 @@ async def remove_item_from_order(update: Update, context: ContextTypes.DEFAULT_T
         await query.answer("❌ سفارش یافت نشد!", show_alert=True)
         return
     
-    order_id_val, user_id, items_json, total_price, status, receipt, shipping_method, created_at = order
+    # تغییر: 11 فیلد
+    order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at = order
     items = json.loads(items_json)
     
     # بررسی اگر فقط یک آیتم مونده
@@ -185,10 +198,33 @@ async def remove_item_from_order(update: Update, context: ContextTypes.DEFAULT_T
     # محاسبه مجدد قیمت کل
     new_total = sum(item['price'] for item in items)
     
+    # محاسبه مجدد تخفیف (اگر وجود داشت)
+    new_discount = 0
+    new_final = new_total
+    
+    if discount_code:
+        # محاسبه تخفیف برای مبلغ جدید
+        discount_info = db.get_discount(discount_code)
+        if discount_info:
+            discount_type = discount_info[2]
+            discount_value = discount_info[3]
+            min_purchase = discount_info[4]
+            max_discount = discount_info[5]
+            
+            if new_total >= min_purchase:
+                if discount_type == 'percentage':
+                    new_discount = new_total * (discount_value / 100)
+                    if max_discount and new_discount > max_discount:
+                        new_discount = max_discount
+                else:
+                    new_discount = discount_value
+                
+                new_final = new_total - new_discount
+    
     # بروزرسانی سفارش در دیتابیس
     db.cursor.execute(
-        "UPDATE orders SET items = ?, total_price = ? WHERE id = ?",
-        (json.dumps(items, ensure_ascii=False), new_total, order_id)
+        "UPDATE orders SET items = ?, total_price = ?, discount_amount = ?, final_price = ? WHERE id = ?",
+        (json.dumps(items, ensure_ascii=False), new_total, new_discount, new_final, order_id)
     )
     db.conn.commit()
     
@@ -203,7 +239,7 @@ async def remove_item_from_order(update: Update, context: ContextTypes.DEFAULT_T
         text += f"{idx + 1}. {item['product']} - {item['pack']}\n"
         text += f"   💰 {item['price']:,.0f} تومان\n\n"
     
-    text += f"💳 جمع جدید: {new_total:,.0f} تومان\n\n"
+    text += f"💳 جمع جدید: {new_final:,.0f} تومان\n\n"
     text += "می‌خواهید آیتم دیگری حذف کنید؟"
     
     await query.edit_message_text(
@@ -254,7 +290,7 @@ async def back_to_order_review(update: Update, context: ContextTypes.DEFAULT_TYP
         return
     
     # نمایش دوباره سفارش با دکمه‌های تایید/رد
-    order_id_val, user_id, items_json, total_price, status, receipt, shipping_method, created_at = order
+    order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at = order
     items = json.loads(items_json)
     user = db.get_user(user_id)
     
@@ -273,7 +309,7 @@ async def back_to_order_review(update: Update, context: ContextTypes.DEFAULT_TYP
     for item in items:
         text += f"• {item['product']} ({item['pack']}) x{item['quantity']}\n"
     
-    text += f"\n💰 {total_price:,.0f} تومان"
+    text += f"\n💰 {final_price:,.0f} تومان"
     
     from keyboards import order_confirmation_keyboard
     
@@ -297,7 +333,7 @@ async def confirm_modified_order(update: Update, context: ContextTypes.DEFAULT_T
     # پیام به کاربر
     order = db.get_order(order_id)
     user_id = order[1]
-    order_id_val, user_id, items_json, total_price, status, receipt, shipping_method, created_at = order
+    order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at = order
     items = json.loads(items_json)
     
     message = "✅ **سفارش شما با تغییرات تایید شد!**\n"
@@ -308,9 +344,9 @@ async def confirm_modified_order(update: Update, context: ContextTypes.DEFAULT_T
         message += f"• {item['product']} - {item['pack']}\n"
         message += f"  💰 {item['price']:,.0f} تومان\n\n"
     
-    message += f"💳 مبلغ قابل پرداخت: {total_price:,.0f} تومان\n\n"
+    message += f"💳 مبلغ قابل پرداخت: {final_price:,.0f} تومان\n\n"
     message += MESSAGES["order_confirmed"].format(
-        amount=f"{total_price:,.0f}",
+        amount=f"{final_price:,.0f}",
         card=CARD_NUMBER,
         holder=CARD_HOLDER
     )
@@ -353,6 +389,7 @@ async def handle_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ارسال به ادمین
     order = db.get_order(order_id)
     items = json.loads(order[2])
+    final_price = order[5]
     user = db.get_user(user_id)
     
     # دریافت امن اطلاعات کاربر
@@ -361,7 +398,7 @@ async def handle_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     text = f"💳 رسید سفارش #{order_id}\n\n"
     text += f"👤 {first_name} (@{username})\n"
-    text += f"💰 مبلغ: {order[3]:,.0f} تومان\n\n"
+    text += f"💰 مبلغ: {final_price:,.0f} تومان\n\n"
     
     for item in items:
         text += f"• {item['product']} ({item['pack']}) x{item['quantity']}\n"
@@ -388,8 +425,8 @@ async def view_payment_receipts(update: Update, context: ContextTypes.DEFAULT_TY
         return
     
     for order in query_result:
-        # تغییر: 8 فیلد به جای 7
-        order_id, user_id, items_json, total_price, status, receipt_photo, shipping_method, created_at = order
+        # تغییر: 11 فیلد
+        order_id, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt_photo, shipping_method, created_at = order
         items = json.loads(items_json)
         user = db.get_user(user_id)
         
@@ -399,7 +436,7 @@ async def view_payment_receipts(update: Update, context: ContextTypes.DEFAULT_TY
         
         text = f"💳 رسید سفارش #{order_id}\n\n"
         text += f"👤 {first_name} (@{username})\n"
-        text += f"💰 {total_price:,.0f} تومان\n\n"
+        text += f"💰 {final_price:,.0f} تومان\n\n"
         
         for item in items:
             text += f"• {item['product']} ({item['pack']}) x{item['quantity']}\n"
@@ -459,11 +496,11 @@ async def reject_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # پیام به کاربر
     order = db.get_order(order_id)
     user_id = order[1]
-    total_price = order[3]
+    final_price = order[5]
     
     message = MESSAGES["payment_rejected"] + "\n\n"
     message += MESSAGES["order_confirmed"].format(
-        amount=f"{total_price:,.0f}",
+        amount=f"{final_price:,.0f}",
         card=CARD_NUMBER,
         holder=CARD_HOLDER
     )
