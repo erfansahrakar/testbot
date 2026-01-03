@@ -1,5 +1,6 @@
 """
 🆕 مدیریت پیشرفته آیتم‌های سفارش با ➕/➖ و ویرایش تعداد
+🔴 FIX باگ 2 + باگ 3: محاسبات صحیح + سیستم عددی
 """
 import json
 from telegram import Update
@@ -10,7 +11,7 @@ from keyboards import order_items_removal_keyboard, cancel_keyboard, admin_main_
 
 
 async def increase_item_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """➕ افزایش تعداد یک آیتم"""
+    """🔴 FIX: ➕ افزایش تعداد به اندازه pack_quantity"""
     query = update.callback_query
     await query.answer()
     
@@ -28,10 +29,11 @@ async def increase_item_quantity(update: Update, context: ContextTypes.DEFAULT_T
     order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at = order
     items = json.loads(items_json)
     
-    # افزایش تعداد
-    items[item_index]['quantity'] += 1
+    # 🔴 FIX باگ 3: افزایش به اندازه pack_quantity
+    pack_quantity = items[item_index].get('pack_quantity', 1)
+    items[item_index]['quantity'] += pack_quantity
     
-    # به‌روزرسانی قیمت
+    # 🔴 FIX باگ 2: محاسبه صحیح قیمت
     await update_order_prices(db, order_id, items, discount_code)
     
     # نمایش لیست به‌روز
@@ -39,7 +41,7 @@ async def increase_item_quantity(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def decrease_item_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """➖ کاهش تعداد یک آیتم"""
+    """🔴 FIX: ➖ کاهش تعداد به اندازه pack_quantity"""
     query = update.callback_query
     await query.answer()
     
@@ -57,10 +59,11 @@ async def decrease_item_quantity(update: Update, context: ContextTypes.DEFAULT_T
     order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at = order
     items = json.loads(items_json)
     
-    # کاهش تعداد
-    items[item_index]['quantity'] -= 1
+    # 🔴 FIX باگ 3: کاهش به اندازه pack_quantity
+    pack_quantity = items[item_index].get('pack_quantity', 1)
+    items[item_index]['quantity'] -= pack_quantity
     
-    # اگر تعداد صفر شد، آیتم رو حذف کن
+    # اگر تعداد صفر یا منفی شد، حذف آیتم
     if items[item_index]['quantity'] <= 0:
         if len(items) <= 1:
             await query.answer("⚠️ نمی‌توانید آخرین آیتم را حذف کنید! از 'رد کامل' استفاده کنید.", show_alert=True)
@@ -69,7 +72,7 @@ async def decrease_item_quantity(update: Update, context: ContextTypes.DEFAULT_T
         removed_item = items.pop(item_index)
         await query.answer(f"🗑 {removed_item['product']} حذف شد!", show_alert=True)
     
-    # به‌روزرسانی قیمت
+    # 🔴 FIX باگ 2: محاسبه صحیح قیمت
     await update_order_prices(db, order_id, items, discount_code)
     
     # نمایش لیست به‌روز
@@ -77,7 +80,7 @@ async def decrease_item_quantity(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def edit_item_quantity_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """✏️ شروع ویرایش تعداد دقیق"""
+    """🔴 FIX باگ 3: ✏️ شروع ویرایش تعداد (عدد نه پک)"""
     query = update.callback_query
     await query.answer()
     
@@ -101,12 +104,13 @@ async def edit_item_quantity_start(update: Update, context: ContextTypes.DEFAULT
     context.user_data['editing_item_index'] = item_index
     context.user_data['editing_discount_code'] = discount_code
     
+    # 🔴 FIX باگ 3: نمایش به عدد
     await query.message.reply_text(
         f"✏️ **ویرایش تعداد**\n\n"
         f"📦 {item['product']} - {item['pack']}\n"
-        f"🔢 تعداد فعلی: {item['quantity']} پک\n\n"
-        f"لطفاً تعداد جدید را وارد کنید:\n"
-        f"(مثال: 3 یا 5)",
+        f"🔢 تعداد فعلی: {item['quantity']} عدد\n\n"
+        f"لطفاً تعداد جدید را وارد کنید (به عدد):\n"
+        f"مثال: 3 یا 12 یا 18",
         parse_mode='Markdown',
         reply_markup=cancel_keyboard()
     )
@@ -115,7 +119,7 @@ async def edit_item_quantity_start(update: Update, context: ContextTypes.DEFAULT
 
 
 async def edit_item_quantity_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """دریافت تعداد جدید"""
+    """🔴 FIX: دریافت تعداد جدید (عدد)"""
     if update.message.text == "❌ لغو":
         await update.message.reply_text("لغو شد.", reply_markup=admin_main_keyboard())
         context.user_data.clear()
@@ -160,16 +164,16 @@ async def edit_item_quantity_received(update: Update, context: ContextTypes.DEFA
                 reply_markup=admin_main_keyboard()
             )
         else:
-            # تغییر تعداد
+            # 🔴 FIX باگ 3: تغییر تعداد به عدد
             old_qty = items[item_index]['quantity']
             items[item_index]['quantity'] = new_quantity
             
             await update.message.reply_text(
-                f"✅ تعداد از {old_qty} به {new_quantity} تغییر کرد!",
+                f"✅ تعداد از {old_qty} عدد به {new_quantity} عدد تغییر کرد!",
                 reply_markup=admin_main_keyboard()
             )
         
-        # به‌روزرسانی قیمت
+        # 🔴 FIX باگ 2: محاسبه صحیح قیمت
         await update_order_prices(db, order_id, items, discount_code)
         
         # نمایش لیست به‌روز
@@ -177,7 +181,7 @@ async def edit_item_quantity_received(update: Update, context: ContextTypes.DEFA
         
         for idx, item in enumerate(items):
             text += f"{idx + 1}. {item['product']} - {item['pack']}\n"
-            text += f"   🔢 تعداد: {item['quantity']} پک\n"
+            text += f"   🔢 تعداد: {item['quantity']} عدد\n"
             text += f"   💰 {item['price']:,.0f} تومان\n\n"
         
         order_updated = db.get_order(order_id)
@@ -200,12 +204,28 @@ async def edit_item_quantity_received(update: Update, context: ContextTypes.DEFA
 
 
 async def update_order_prices(db, order_id, items, discount_code=None):
-    """محاسبه مجدد قیمت‌ها"""
+    """🔴 FIX باگ 2: محاسبه صحیح قیمت‌ها
+    
+    هر آیتم باید داشته باشد:
+    - unit_price: قیمت هر عدد
+    - quantity: تعداد عدد
+    - price: قیمت کل = unit_price × quantity
+    """
     # محاسبه مبلغ کل
     new_total = 0
+    
     for item in items:
-        # محاسبه قیمت واحد هر پک
-        unit_price = item['price'] / item['quantity'] if item.get('original_quantity') else item['price']
+        # 🔴 FIX باگ 2: محاسبه صحیح با unit_price
+        unit_price = item.get('unit_price')
+        
+        if not unit_price:
+            # اگر unit_price نداشت، محاسبه می‌کنیم
+            pack_quantity = item.get('pack_quantity', 1)
+            pack_price = item.get('pack_price', item.get('price', 0))
+            unit_price = pack_price / pack_quantity if pack_quantity > 0 else 0
+            item['unit_price'] = unit_price
+        
+        # قیمت کل این آیتم = قیمت واحد × تعداد عدد
         item['price'] = unit_price * item['quantity']
         new_total += item['price']
     
@@ -237,23 +257,25 @@ async def update_order_prices(db, order_id, items, discount_code=None):
         (json.dumps(items, ensure_ascii=False), new_total, new_discount, new_final, order_id)
     )
     db.conn.commit()
+    
+    print(f"✅ باگ 2 FIX: قیمت‌ها محاسبه شدند - کل={new_total:,.0f}, تخفیف={new_discount:,.0f}, نهایی={new_final:,.0f}")
 
 
 async def show_updated_order_items(query, order_id, items, db):
-    """نمایش لیست به‌روز شده آیتم‌ها"""
+    """🔴 FIX باگ 3: نمایش لیست به‌روز (با عدد)"""
     text = "✅ **به‌روزرسانی شد!**\n\n"
     text += "📋 آیتم‌های سفارش:\n\n"
     
     for idx, item in enumerate(items):
         text += f"{idx + 1}. {item['product']} - {item['pack']}\n"
-        text += f"   🔢 تعداد: {item['quantity']} پک\n"
+        text += f"   🔢 تعداد: {item['quantity']} عدد\n"
         text += f"   💰 {item['price']:,.0f} تومان\n\n"
     
     order = db.get_order(order_id)
     final_price = order[5]
     
     text += f"💳 **جمع کل: {final_price:,.0f} تومان**\n\n"
-    text += "می‌خواهید تغییر دیگری بدهید?"
+    text += "می‌خواهید تغییر دیگری بدهید؟"
     
     await query.edit_message_text(
         text,
