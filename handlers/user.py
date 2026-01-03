@@ -1,11 +1,12 @@
 """
 هندلرهای مربوط به کاربران
-🔴 FIX باگ 3: سیستم خرید بر اساس عدد (نه پک)
+
 """
 import json
 from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler
 from config import MESSAGES
+from validators import Validators
 from states import FULL_NAME, ADDRESS_TEXT, PHONE_NUMBER
 from keyboards import (
     user_main_keyboard,
@@ -287,12 +288,24 @@ async def finalize_order_start(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def full_name_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """دریافت نام و نام خانوادگی"""
+    """دریافت نام و نام خانوادگی - با اعتبارسنجی"""
     if update.message.text == "❌ لغو":
         await update.message.reply_text("لغو شد.", reply_markup=user_main_keyboard())
         return ConversationHandler.END
     
-    context.user_data['temp_full_name'] = update.message.text
+    full_name = update.message.text
+    
+    # 🔒 اعتبارسنجی نام
+    is_valid, error_msg, cleaned_name = Validators.validate_name(full_name)
+    
+    if not is_valid:
+        await update.message.reply_text(
+            error_msg,
+            reply_markup=cancel_keyboard()
+        )
+        return FULL_NAME  # دوباره بپرس
+    
+    context.user_data['temp_full_name'] = cleaned_name
     
     await update.message.reply_text(
         "📍 لطفاً **آدرس دقیق** خود را وارد کنید:\n\n"
@@ -304,12 +317,24 @@ async def full_name_received(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def address_text_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """دریافت آدرس"""
+    """دریافت آدرس - با اعتبارسنجی"""
     if update.message.text == "❌ لغو":
         await update.message.reply_text("لغو شد.", reply_markup=user_main_keyboard())
         return ConversationHandler.END
     
-    context.user_data['temp_address'] = update.message.text
+    address = update.message.text
+    
+    # 🔒 اعتبارسنجی آدرس
+    is_valid, error_msg, cleaned_address = Validators.validate_address(address)
+    
+    if not is_valid:
+        await update.message.reply_text(
+            error_msg,
+            reply_markup=cancel_keyboard()
+        )
+        return ADDRESS_TEXT  # دوباره بپرس
+    
+    context.user_data['temp_address'] = cleaned_address
     
     await update.message.reply_text(
         "📱 لطفاً **شماره تماس** خود را وارد کنید:\n\n"
@@ -319,19 +344,29 @@ async def address_text_received(update: Update, context: ContextTypes.DEFAULT_TY
     )
     return PHONE_NUMBER
 
-
 async def phone_number_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """دریافت شماره تماس و ذخیره نهایی"""
+    """دریافت شماره تماس و ذخیره نهایی - با اعتبارسنجی"""
     if update.message.text == "❌ لغو":
         await update.message.reply_text("لغو شد.", reply_markup=user_main_keyboard())
         return ConversationHandler.END
+    
+    phone = update.message.text
+    
+    # 🔒 اعتبارسنجی شماره تلفن
+    is_valid, error_msg = Validators.validate_phone(phone)
+    
+    if not is_valid:
+        await update.message.reply_text(
+            error_msg,
+            reply_markup=cancel_keyboard()
+        )
+        return PHONE_NUMBER  # دوباره بپرس
     
     user_id = update.effective_user.id
     db = context.bot_data['db']
     
     full_name = context.user_data.get('temp_full_name', '')
     address = context.user_data.get('temp_address', '')
-    phone = update.message.text
     
     # ذخیره اطلاعات
     db.update_user_info(
@@ -378,6 +413,12 @@ async def phone_number_received(update: Update, context: ContextTypes.DEFAULT_TY
             parse_mode='Markdown',
             reply_markup=confirm_info_keyboard()
         )
+        
+        return ConversationHandler.END
+    
+    # ثبت سفارش اولیه
+    await create_order_from_message(update, context)
+    return ConversationHandler.END
         
         return ConversationHandler.END
     
