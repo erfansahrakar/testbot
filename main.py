@@ -10,7 +10,8 @@ from telegram.ext import (
     MessageHandler,
     CallbackQueryHandler,
     ConversationHandler,
-    filters
+    filters,
+    JobQueue
 )
 
 # ایمپورت ماژول‌های پروژه
@@ -164,8 +165,20 @@ def main():
     # ایجاد دیتابیس
     db = Database()
     
-    # ساخت اپلیکیشن با Job Queue فعال
-    application = Application.builder().token(BOT_TOKEN).build()
+    # ساخت اپلیکیشن با فعال‌سازی Job Queue
+    try:
+        # روش 1: استفاده از job_queue در builder
+        application = (
+            Application.builder()
+            .token(BOT_TOKEN)
+            .job_queue(JobQueue())
+            .build()
+        )
+        logger.info("✅ Application با JobQueue ساخته شد")
+    except Exception as e:
+        logger.warning(f"⚠️ خطا در ساخت JobQueue: {e}")
+        # اگر روش اول کار نکرد، به روش معمولی بساز
+        application = Application.builder().token(BOT_TOKEN).build()
     
     # ذخیره دیتابیس در bot_data
     application.bot_data['db'] = db
@@ -174,15 +187,17 @@ def main():
     from backup_scheduler import setup_backup_job, setup_backup_folder
     setup_backup_folder()
     
-    # فعال‌سازی Job Queue
+    # تلاش برای فعال‌سازی بکاپ خودکار
     try:
-        if application.job_queue is not None:
+        if hasattr(application, 'job_queue') and application.job_queue is not None:
             setup_backup_job(application)
-            logger.info("✅ بکاپ خودکار فعال شد")
+            logger.info("✅ بکاپ خودکار روزانه فعال شد")
         else:
-            logger.warning("⚠️ Job Queue فعال نیست - بکاپ خودکار غیرفعال است")
+            logger.warning("⚠️ JobQueue در دسترس نیست - بکاپ خودکار غیرفعال است")
+            logger.warning("💡 بکاپ دستی از طریق دکمه '💾 بکاپ دستی' قابل استفاده است")
     except Exception as e:
         logger.warning(f"⚠️ خطا در راه‌اندازی بکاپ خودکار: {e}")
+        logger.warning("💡 بکاپ دستی از طریق دکمه '💾 بکاپ دستی' قابل استفاده است")
     
     # ==================== ConversationHandler برای افزودن محصول ====================
     add_product_conv = ConversationHandler(
