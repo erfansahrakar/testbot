@@ -1,6 +1,7 @@
 """
 ربات فروشگاه مانتو تلگرام
 فایل اصلی - نسخه کامل با قابلیت‌های جدید
+🆕 اضافه شده: کد تخفیف کاربر، مدیریت پیشرفته سفارش، پیام همگانی
 """
 import logging
 from telegram import Update
@@ -51,7 +52,7 @@ async def handle_text_messages(update: Update, context):
     from handlers.discount import discount_menu
     from handlers.broadcast import broadcast_start
     from backup_scheduler import manual_backup
-    from handlers.analytics import send_analytics_menu  # موقتاً غیرفعال
+    from handlers.analytics import send_analytics_menu
     
     # دستورات ادمین
     if user_id == ADMIN_ID:
@@ -90,10 +91,11 @@ async def handle_text_messages(update: Update, context):
             "2️⃣ روی دکمه پک مورد نظر کلیک کنید\n"
             "3️⃣ هر بار کلیک = 1 پک به سبد اضافه می‌شود\n"
             "4️⃣ بعد تمام شدن، روی 'سبد خرید' کلیک کنید\n"
-            "5️⃣ سفارش خود را نهایی کنید\n"
-            "6️⃣ بعد از تایید، مبلغ را واریز کنید\n"
-            "7️⃣ رسید را ارسال کنید\n"
-            "8️⃣ سفارش شما ارسال می‌شود! 🎉"
+            "5️⃣ اگر کد تخفیف دارید وارد کنید\n"
+            "6️⃣ سفارش خود را نهایی کنید\n"
+            "7️⃣ بعد از تایید، مبلغ را واریز کنید\n"
+            "8️⃣ رسید را ارسال کنید\n"
+            "9️⃣ سفارش شما ارسال می‌شود! 🎉"
         )
 
 
@@ -128,7 +130,7 @@ def main():
         delete_pack_confirm, edit_in_channel, back_to_product
     )
     
-    # 🆕 Import توابع admin_pack_management (مدیریت پک‌ها)
+    # Import توابع admin_pack_management (مدیریت پک‌ها)
     from handlers.admin_pack_management import (
         manage_packs_menu,
         confirm_delete_pack,
@@ -145,11 +147,25 @@ def main():
         back_to_packs, user_start, confirm_user_info, edit_user_info_for_order
     )
     
+    # 🆕 Import توابع user_discount (کد تخفیف کاربر)
+    from handlers.user_discount import (
+        apply_discount_start,
+        discount_code_entered
+    )
+    
     # Import توابع order
     from handlers.order import (
         confirm_order, reject_order, confirm_payment, reject_payment,
         remove_item_from_order, reject_full_order, back_to_order_review,
         confirm_modified_order
+    )
+    
+    # 🆕 Import توابع order_management (مدیریت پیشرفته)
+    from handlers.order_management import (
+        increase_item_quantity,
+        decrease_item_quantity,
+        edit_item_quantity_start,
+        edit_item_quantity_received
     )
     
     # Import توابع discount
@@ -163,7 +179,8 @@ def main():
     
     # Import توابع broadcast
     from handlers.broadcast import (
-        broadcast_message_received, confirm_broadcast, cancel_broadcast
+        broadcast_start, broadcast_message_received, 
+        confirm_broadcast, cancel_broadcast
     )
     
     # Import توابع analytics
@@ -174,7 +191,6 @@ def main():
     
     # ساخت اپلیکیشن با فعال‌سازی Job Queue
     try:
-        # روش 1: استفاده از job_queue در builder
         application = (
             Application.builder()
             .token(BOT_TOKEN)
@@ -184,7 +200,6 @@ def main():
         logger.info("✅ Application با JobQueue ساخته شد")
     except Exception as e:
         logger.warning(f"⚠️ خطا در ساخت JobQueue: {e}")
-        # اگر روش اول کار نکرد، به روش معمولی بساز
         application = Application.builder().token(BOT_TOKEN).build()
     
     # ذخیره دیتابیس در bot_data
@@ -194,17 +209,14 @@ def main():
     from backup_scheduler import setup_backup_job, setup_backup_folder
     setup_backup_folder()
     
-    # تلاش برای فعال‌سازی بکاپ خودکار
     try:
         if hasattr(application, 'job_queue') and application.job_queue is not None:
             setup_backup_job(application)
             logger.info("✅ بکاپ خودکار روزانه فعال شد")
         else:
             logger.warning("⚠️ JobQueue در دسترس نیست - بکاپ خودکار غیرفعال است")
-            logger.warning("💡 بکاپ دستی از طریق دکمه '💾 بکاپ دستی' قابل استفاده است")
     except Exception as e:
         logger.warning(f"⚠️ خطا در راه‌اندازی بکاپ خودکار: {e}")
-        logger.warning("💡 بکاپ دستی از طریق دکمه '💾 بکاپ دستی' قابل استفاده است")
     
     # ==================== ConversationHandler برای افزودن محصول ====================
     add_product_conv = ConversationHandler(
@@ -282,15 +294,33 @@ def main():
         fallbacks=[MessageHandler(filters.Regex("^❌ لغو$"), admin_start)],
     )
     
-    # ==================== ConversationHandler برای پیام همگانی ====================
+    # 🆕 ==================== ConversationHandler برای پیام همگانی (اصلاح شده) ====================
     broadcast_conv = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("^📢 پیام همگانی$"), broadcast_message_received)],
+        entry_points=[MessageHandler(filters.Regex("^📢 پیام همگانی$"), broadcast_start)],
         states={
             BROADCAST_MESSAGE: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, broadcast_message_received),
                 MessageHandler(filters.PHOTO, broadcast_message_received),
                 MessageHandler(filters.VIDEO, broadcast_message_received),
             ],
+        },
+        fallbacks=[MessageHandler(filters.Regex("^❌ لغو$"), admin_start)],
+    )
+    
+    # 🆕 ==================== ConversationHandler برای کد تخفیف کاربر ====================
+    user_discount_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(apply_discount_start, pattern="^apply_discount$")],
+        states={
+            ENTER_DISCOUNT_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, discount_code_entered)],
+        },
+        fallbacks=[MessageHandler(filters.Regex("^❌ لغو$"), user_start)],
+    )
+    
+    # 🆕 ==================== ConversationHandler برای ویرایش تعداد آیتم ====================
+    edit_item_qty_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(edit_item_quantity_start, pattern="^edit_item_qty:")],
+        states={
+            EDIT_ITEM_QUANTITY: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_item_quantity_received)],
         },
         fallbacks=[MessageHandler(filters.Regex("^❌ لغو$"), admin_start)],
     )
@@ -349,6 +379,8 @@ def main():
     application.add_handler(edit_pack_conv)
     application.add_handler(create_discount_conv)
     application.add_handler(broadcast_conv)
+    application.add_handler(user_discount_conv)  # 🆕
+    application.add_handler(edit_item_qty_conv)  # 🆕
     application.add_handler(finalize_order_conv)
     application.add_handler(edit_address_conv)
     application.add_handler(edit_user_info_conv)
@@ -366,7 +398,7 @@ def main():
     application.add_handler(CallbackQueryHandler(delete_pack_confirm, pattern="^delete_pack:"))
     application.add_handler(CallbackQueryHandler(back_to_product, pattern="^back_to_product:"))
     
-    # 🆕 مدیریت پک‌ها (handler های جدید)
+    # مدیریت پک‌ها
     application.add_handler(CallbackQueryHandler(manage_packs_menu, pattern="^manage_packs:"))
     application.add_handler(CallbackQueryHandler(confirm_delete_pack, pattern="^confirm_delete_pack:"))
     application.add_handler(CallbackQueryHandler(delete_pack_final, pattern="^delete_pack_final:"))
@@ -393,6 +425,10 @@ def main():
     application.add_handler(CallbackQueryHandler(confirm_payment, pattern="^confirm_payment:"))
     application.add_handler(CallbackQueryHandler(reject_payment, pattern="^reject_payment:"))
     
+    # 🆕 مدیریت پیشرفته سفارش
+    application.add_handler(CallbackQueryHandler(increase_item_quantity, pattern="^increase_item:"))
+    application.add_handler(CallbackQueryHandler(decrease_item_quantity, pattern="^decrease_item:"))
+    
     # تخفیف‌ها
     application.add_handler(CallbackQueryHandler(list_discounts, pattern="^list_discounts$"))
     application.add_handler(CallbackQueryHandler(view_discount, pattern="^view_discount:"))
@@ -403,7 +439,7 @@ def main():
     application.add_handler(CallbackQueryHandler(confirm_broadcast, pattern="^confirm_broadcast$"))
     application.add_handler(CallbackQueryHandler(cancel_broadcast, pattern="^cancel_broadcast$"))
     
-    # گزارش‌های تحلیلی - موقتاً غیرفعال
+    # گزارش‌های تحلیلی
     application.add_handler(CallbackQueryHandler(handle_analytics_report, pattern="^analytics:"))
     
     # ==================== Message هندلرها ====================
