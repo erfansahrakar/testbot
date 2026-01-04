@@ -8,6 +8,7 @@
 import time
 import logging
 from functools import wraps
+from logger import log_rate_limit
 from collections import defaultdict, deque
 from typing import Callable, Dict, Tuple
 from telegram import Update
@@ -64,10 +65,12 @@ class RateLimiter:
         request_count = len(self._user_requests[user_id])
         
         if request_count >= max_requests:
-            # محاسبه زمان باقیمانده
             oldest_request = self._user_requests[user_id][0]
             remaining_time = int(window_seconds - (time.time() - oldest_request)) + 1
-            logger.warning(f"Rate limit exceeded for user {user_id}: {request_count}/{max_requests}")
+    
+            # 🆕 لاگ محدودیت
+            log_rate_limit(user_id, "general", remaining_time)
+    
             return False, remaining_time
         
         # ثبت درخواست جدید
