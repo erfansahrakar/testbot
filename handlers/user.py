@@ -1,6 +1,6 @@
 """
 هندلرهای مربوط به کاربران
-
+✅ FIX: ترتیب صحیح log_order و log_discount_usage
 """
 import json
 from telegram import Update
@@ -448,9 +448,11 @@ async def edit_user_info_for_order(update: Update, context: ContextTypes.DEFAULT
     
     context.user_data['editing_for_order'] = True
     return FULL_NAME
+
 """
 ادامه فایل user.py - بخش ثبت سفارش
 🔴 FIX باگ 3: ثبت سفارش با unit_price
+✅ FIX: ترتیب صحیح log_order و log_discount_usage
 """
 
 async def use_old_address(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -477,7 +479,8 @@ async def use_new_address(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def create_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """🔴 FIX باگ 3: ایجاد سفارش با unit_price"""
+    """🔴 FIX باگ 3: ایجاد سفارش با unit_price
+    ✅ FIX: ترتیب صحیح لاگ‌ها"""
     query = update.callback_query
     user_id = update.effective_user.id
     db = context.bot_data['db']
@@ -514,7 +517,7 @@ async def create_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     final_price = total_price - discount_amount
     
-    # ثبت سفارش
+    # ✅ FIX: اول ثبت سفارش
     order_id = db.create_order(
         user_id, 
         items, 
@@ -523,18 +526,17 @@ async def create_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
         final_price=final_price,
         discount_code=discount_code
     )
-
-    # 🆕 لاگ سفارش
+    
+    # ✅ FIX: بعد لاگ سفارش
     log_order(order_id, user_id, "pending", final_price)
-
-    # اگر تخفیف داره:
-    if discount_code:
-        log_discount_usage(user_id, discount_code, discount_amount)
     
     # ثبت استفاده از تخفیف
     if discount_code:
         discount_id = context.user_data.get('discount_id')
         db.use_discount(user_id, discount_code, order_id)
+        
+        # ✅ FIX: بعد لاگ تخفیف
+        log_discount_usage(user_id, discount_code, discount_amount)
         
         context.user_data.pop('applied_discount_code', None)
         context.user_data.pop('discount_amount', None)
@@ -552,7 +554,8 @@ async def create_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def create_order_from_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """🔴 FIX باگ 3: ایجاد سفارش از پیام با unit_price"""
+    """🔴 FIX باگ 3: ایجاد سفارش از پیام با unit_price
+    ✅ FIX: ترتیب صحیح لاگ‌ها"""
     user_id = update.effective_user.id
     db = context.bot_data['db']
     
@@ -588,7 +591,7 @@ async def create_order_from_message(update: Update, context: ContextTypes.DEFAUL
     
     final_price = total_price - discount_amount
     
-    # ثبت سفارش
+    # ✅ FIX: اول ثبت سفارش
     order_id = db.create_order(
         user_id, 
         items, 
@@ -598,10 +601,16 @@ async def create_order_from_message(update: Update, context: ContextTypes.DEFAUL
         discount_code=discount_code
     )
     
+    # ✅ FIX: بعد لاگ سفارش
+    log_order(order_id, user_id, "pending", final_price)
+    
     # ثبت استفاده از تخفیف
     if discount_code:
         discount_id = context.user_data.get('discount_id')
         db.use_discount(user_id, discount_code, order_id)
+        
+        # ✅ FIX: بعد لاگ تخفیف
+        log_discount_usage(user_id, discount_code, discount_amount)
         
         context.user_data.pop('applied_discount_code', None)
         context.user_data.pop('discount_amount', None)
