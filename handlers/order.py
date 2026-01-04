@@ -431,20 +431,21 @@ async def view_payment_receipts(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def confirm_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """تایید پرداخت توسط ادمین"""
+    """تایید پرداخت توسط ادمین
+    ✅ FIX: ترتیب صحیح log_payment"""
     query = update.callback_query
     await query.answer("✅ پرداخت تایید شد")
     
     order_id = int(query.data.split(":")[1])
     db = context.bot_data['db']
     
+    # ✅ FIX: اول تغییر وضعیت
     db.update_order_status(order_id, 'payment_confirmed')
-
-    # 🆕 لاگ پرداخت
-    log_payment(order_id, user_id, "confirmed")
-
+    
+    # ✅ FIX: بعد لاگ پرداخت
     order = db.get_order(order_id)
     user_id = order[1]
+    log_payment(order_id, user_id, "confirmed")
     
     from keyboards import shipping_method_keyboard
     
@@ -459,8 +460,7 @@ async def confirm_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await query.edit_message_caption(
         caption=query.message.caption + "\n\n✅ تایید شد - منتظر انتخاب نحوه ارسال"
-    )
-
+    
 
 async def reject_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """رد پرداخت توسط ادمین"""
