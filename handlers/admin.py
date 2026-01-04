@@ -6,6 +6,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
 from config import ADMIN_ID, MESSAGES, CHANNEL_USERNAME
 from validators import Validators
+from logger import log_admin_action
 from states import PRODUCT_NAME, PRODUCT_DESC, PRODUCT_PHOTO, PACK_NAME, PACK_QUANTITY, PACK_PRICE
 from keyboards import (
     admin_main_keyboard, 
@@ -89,6 +90,14 @@ async def product_photo_received(update: Update, context: ContextTypes.DEFAULT_T
     # ذخیره در دیتابیس
     db = context.bot_data['db']
     product_id = db.add_product(
+        
+        # 🆕 لاگ عملیات ادمین
+    log_admin_action(
+        update.effective_user.id, 
+        "افزودن محصول", 
+        f"ID: {product_id}"
+    )
+        
         context.user_data['product_name'],
         context.user_data['product_desc'],
         context.user_data['product_photo']
