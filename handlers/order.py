@@ -5,6 +5,7 @@
 import json
 from telegram import Update
 from telegram.ext import ContextTypes
+from logger import log_payment, log_admin_action
 from config import ADMIN_ID, MESSAGES, CARD_NUMBER, CARD_HOLDER
 from keyboards import order_confirmation_keyboard, payment_confirmation_keyboard, user_main_keyboard
 
@@ -438,7 +439,10 @@ async def confirm_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db = context.bot_data['db']
     
     db.update_order_status(order_id, 'payment_confirmed')
-    
+
+    # 🆕 لاگ پرداخت
+    log_payment(order_id, user_id, "confirmed")
+
     order = db.get_order(order_id)
     user_id = order[1]
     
