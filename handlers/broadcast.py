@@ -1,6 +1,7 @@
 """
 سیستم پیام‌رسانی همگانی
 🆕 اصلاح شده: حالا درست کار می‌کنه!
+✅ FIX: ترتیب صحیح log_broadcast
 """
 import asyncio
 from telegram import Update
@@ -102,14 +103,8 @@ async def confirm_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"⏳ در حال ارسال به {len(users)} کاربر...\n"
         f"لطفاً صبر کنید..."
     )
-
-    log_broadcast(
-    update.effective_user.id,
-    success_count,
-    failed_count,
-    len(users)
-    )
     
+    # ✅ FIX: اول متغیرها رو تعریف کن
     success_count = 0
     failed_count = 0
     blocked_count = 0
@@ -150,6 +145,14 @@ async def confirm_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # تاخیر کوچک برای جلوگیری از محدودیت تلگرام
         await asyncio.sleep(0.05)
+    
+    # ✅ FIX: حالا log_broadcast بعد از تعریف متغیرها فراخوانی میشه
+    log_broadcast(
+        update.effective_user.id,
+        success_count,
+        failed_count,
+        len(users)
+    )
     
     # گزارش نهایی
     report = "✅ **ارسال پیام همگانی تکمیل شد!**\n\n"
