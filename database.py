@@ -229,8 +229,8 @@ class Database:
     # ==================== محصولات ====================
     
     def add_product(self, name: str, description: str, photo_id: str):
-    try:
-        self.cursor.execute(
+            try:
+                self.cursor.execute(
             "INSERT INTO products (name, description, photo_id) VALUES (?, ?, ?)",
             (name, description, photo_id)
         )
