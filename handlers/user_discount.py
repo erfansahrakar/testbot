@@ -4,6 +4,7 @@
 from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler
 from datetime import datetime
+from rate_limiter import action_limit
 from states import ENTER_DISCOUNT_CODE
 from keyboards import cancel_keyboard, user_main_keyboard, cart_keyboard
 import json
@@ -24,6 +25,7 @@ async def apply_discount_start(update: Update, context: ContextTypes.DEFAULT_TYP
     return ENTER_DISCOUNT_CODE
 
 
+@action_limit('discount', max_requests=5, window_seconds=60)
 async def discount_code_entered(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """بررسی و اعمال کد تخفیف"""
     if update.message.text == "❌ لغو":
