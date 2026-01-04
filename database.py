@@ -229,23 +229,23 @@ class Database:
     # ==================== محصولات ====================
     
     def add_product(self, name: str, description: str, photo_id: str):
-    try:
-        self.cursor.execute(
-            "INSERT INTO products (name, description, photo_id) VALUES (?, ?, ?)",
-            (name, description, photo_id)
-        )
-        self.conn.commit()
+        try:
+            self.cursor.execute(
+                "INSERT INTO products (name, description, photo_id) VALUES (?, ?, ?)",
+                (name, description, photo_id)
+            )
+            self.conn.commit()
 
-        product_id = self.cursor.lastrowid
+            product_id = self.cursor.lastrowid
 
-        # 🆕 لاگ عملیات
-        log_database_operation("INSERT", "products", product_id)
+            # 🆕 لاگ عملیات
+            log_database_operation("INSERT", "products", product_id)
 
-        return product_id
+            return product_id
 
-    except Exception as e:
-        log_error("Database", f"خطا در افزودن محصول: {e}")
-        raise
+        except Exception as e:
+            log_error("Database", f"خطا در افزودن محصول: {e}")
+            raise
     
     def get_product(self, product_id):
         """دریافت اطلاعات یک محصول"""
