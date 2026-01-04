@@ -63,7 +63,35 @@ class DatabaseError(Exception):
 
 class Database:
     """کلاس مدیریت دیتابیس با امنیت بالا"""
+
+    def clean_invalid_cart_items(self, user_id: int):
+        """
+        حذف آیتم‌های نامعتبر از سبد
+        (محصولات یا پک‌هایی که حذف شدن)
     
+        ⚠️ این تابع رو قبل از get_cart صدا بزن تا از ارور جلوگیری بشه
+        """
+        try:
+            self.cursor.execute("""
+                DELETE FROM cart 
+                WHERE user_id = ? 
+                AND (
+                    product_id NOT IN (SELECT id FROM products)
+                    OR pack_id NOT IN (SELECT id FROM packs)
+                )
+            """, (user_id,))
+            self.conn.commit()
+        
+            deleted_count = self.cursor.rowcount
+            if deleted_count > 0:
+                logger.info(f"🧹 {deleted_count} آیتم نامعتبر از سبد کاربر {user_id} حذف شد")
+        
+            return deleted_count
+        
+        except Exception as e:
+            logger.error(f"خطا در پاکسازی سبد کاربر {user_id}: {e}")
+            return 0
+        
     def __init__(self):
         self.conn = sqlite3.connect(DATABASE_NAME, check_same_thread=False)
         self.cursor = self.conn.cursor()
@@ -406,35 +434,6 @@ class Database:
                 (user_id, product_id, pack_id, actual_quantity)
             )
         self.conn.commit()
-
-
-    def clean_invalid_cart_items(self, user_id: int):
-    """
-    حذف آیتم‌های نامعتبر از سبد
-    (محصولات یا پک‌هایی که حذف شدن)
-    
-    ⚠️ این تابع رو قبل از get_cart صدا بزن تا از ارور جلوگیری بشه
-    """
-    try:
-        self.cursor.execute("""
-            DELETE FROM cart 
-            WHERE user_id = ? 
-            AND (
-                product_id NOT IN (SELECT id FROM products)
-                OR pack_id NOT IN (SELECT id FROM packs)
-            )
-        """, (user_id,))
-        self.conn.commit()
-        
-        deleted_count = self.cursor.rowcount
-        if deleted_count > 0:
-            logger.info(f"🧹 {deleted_count} آیتم نامعتبر از سبد کاربر {user_id} حذف شد")
-        
-        return deleted_count
-        
-    except Exception as e:
-        logger.error(f"خطا در پاکسازی سبد کاربر {user_id}: {e}")
-        return 0
 
     
     def get_cart(self, user_id: int):
