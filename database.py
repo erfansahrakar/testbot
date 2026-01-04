@@ -437,19 +437,19 @@ class Database:
 
     
     def get_cart(self, user_id: int):
-    """دریافت سبد خرید - با پاکسازی خودکار"""
-    # ✅ اول آیتم‌های نامعتبر رو حذف کن
-    self.clean_invalid_cart_items(user_id)
+        """دریافت سبد خرید - با پاکسازی خودکار"""
+        # ✅ اول آیتم‌های نامعتبر رو حذف کن
+        self.clean_invalid_cart_items(user_id)
     
-    # بعد سبد رو برگردون
-    self.cursor.execute("""
-        SELECT c.id, p.name, pk.name, pk.quantity, pk.price, c.quantity
-        FROM cart c
-        JOIN products p ON c.product_id = p.id
-        JOIN packs pk ON c.pack_id = pk.id
-        WHERE c.user_id = ?
-    """, (user_id,))
-    return self.cursor.fetchall()
+        # بعد سبد رو برگردون
+        self.cursor.execute("""
+            SELECT c.id, p.name, pk.name, pk.quantity, pk.price, c.quantity
+            FROM cart c
+            JOIN products p ON c.product_id = p.id
+            JOIN packs pk ON c.pack_id = pk.id
+            WHERE c.user_id = ?
+        """, (user_id,))
+        return self.cursor.fetchall()
     
     def clear_cart(self, user_id: int):
         """خالی کردن سبد خرید"""
