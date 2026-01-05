@@ -2,6 +2,7 @@
 مدیریت سفارشات و پرداخت‌ها
 🔴 FIX باگ 3: نمایش عدد به جای پک
 ✅ FIX: پیام بهتر بعد Reject (Cart پاک نمیشه)
+✅ FIX: نمایش توضیحات admin_notes در فاکتور
 """
 import json
 from telegram import Update
@@ -12,7 +13,7 @@ from keyboards import order_confirmation_keyboard, payment_confirmation_keyboard
 
 
 async def send_order_to_admin(context: ContextTypes.DEFAULT_TYPE, order_id: int):
-    """🔴 FIX باگ 3: ارسال سفارش به ادمین (با عدد)"""
+    """🔴 FIX باگ 3: ارسال سفارش به ادمین (با عدد و توضیحات)"""
     db = context.bot_data['db']
     order = db.get_order(order_id)
     
@@ -37,9 +38,13 @@ async def send_order_to_admin(context: ContextTypes.DEFAULT_TYPE, order_id: int)
     text += "📦 آیتم‌ها:\n"
     
     for item in items:
-        # 🔴 FIX باگ 3: نمایش عدد
         text += f"• {item['product']} - {item['pack']}\n"
         text += f"  تعداد: {item['quantity']} عدد\n"
+        
+        # ✅ نمایش توضیحات اگر وجود داشت
+        if item.get('admin_notes'):
+            text += f"  📝 توضیحات: {item['admin_notes']}\n"
+        
         text += f"  قیمت: {item['price']:,.0f} تومان\n\n"
     
     text += f"💰 جمع کل: {total_price:,.0f} تومان\n"
@@ -60,7 +65,7 @@ async def send_order_to_admin(context: ContextTypes.DEFAULT_TYPE, order_id: int)
 
 
 async def view_pending_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """🔴 FIX باگ 3: نمایش سفارشات در انتظار (با عدد)"""
+    """🔴 FIX باگ 3: نمایش سفارشات در انتظار (با عدد و توضیحات)"""
     db = context.bot_data['db']
     orders = db.get_pending_orders()
     
@@ -86,8 +91,13 @@ async def view_pending_orders(update: Update, context: ContextTypes.DEFAULT_TYPE
         text += f"📍 {address}\n\n"
         
         for item in items:
-            # 🔴 FIX باگ 3
-            text += f"• {item['product']} ({item['pack']}) - {item['quantity']} عدد\n"
+            text += f"• {item['product']} ({item['pack']}) - {item['quantity']} عدد"
+            
+            # ✅ نمایش توضیحات
+            if item.get('admin_notes'):
+                text += f"\n  📝 {item['admin_notes']}"
+            
+            text += "\n"
         
         text += f"\n💰 جمع: {total_price:,.0f} تومان"
         
@@ -151,9 +161,14 @@ async def reject_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text += "کدام محصول را می‌خواهید حذف کنید؟\n\n"
     
     for idx, item in enumerate(items):
-        # 🔴 FIX باگ 3
         text += f"{idx + 1}. {item['product']} - {item['pack']}\n"
-        text += f"   {item['quantity']} عدد - {item['price']:,.0f} تومان\n\n"
+        text += f"   {item['quantity']} عدد"
+        
+        # ✅ نمایش توضیحات
+        if item.get('admin_notes'):
+            text += f"\n   📝 {item['admin_notes']}"
+        
+        text += f" - {item['price']:,.0f} تومان\n\n"
     
     text += f"💳 جمع کل: {final_price:,.0f} تومان"
     
@@ -190,7 +205,7 @@ async def remove_item_from_order(update: Update, context: ContextTypes.DEFAULT_T
             "💡 اگر می‌خواهید کل سفارش رد بشه، از دکمه 'رد کامل' استفاده کنید.",
             show_alert=True
         )
-        return  # 🔴 جلوگیری از حذف
+        return
     
     # حذف آیتم
     removed_item = items.pop(item_index)
@@ -238,7 +253,13 @@ async def remove_item_from_order(update: Update, context: ContextTypes.DEFAULT_T
     
     for idx, item in enumerate(items):
         text += f"{idx + 1}. {item['product']} - {item['pack']}\n"
-        text += f"   {item['quantity']} عدد - {item['price']:,.0f} تومان\n\n"
+        text += f"   {item['quantity']} عدد"
+        
+        # ✅ نمایش توضیحات
+        if item.get('admin_notes'):
+            text += f"\n   📝 {item['admin_notes']}"
+        
+        text += f" - {item['price']:,.0f} تومان\n\n"
     
     text += f"💳 جمع جدید: {new_final:,.0f} تومان\n\n"
     
@@ -254,6 +275,7 @@ async def remove_item_from_order(update: Update, context: ContextTypes.DEFAULT_T
         parse_mode='Markdown',
         reply_markup=order_items_removal_keyboard(order_id, items)
     )
+
 
 async def reject_full_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """✅ FIX: رد کامل سفارش با پیام بهتر"""
@@ -313,8 +335,13 @@ async def back_to_order_review(update: Update, context: ContextTypes.DEFAULT_TYP
     text += f"📍 {address}\n\n"
     
     for item in items:
-        # 🔴 FIX باگ 3
-        text += f"• {item['product']} ({item['pack']}) - {item['quantity']} عدد\n"
+        text += f"• {item['product']} ({item['pack']}) - {item['quantity']} عدد"
+        
+        # ✅ نمایش توضیحات
+        if item.get('admin_notes'):
+            text += f"\n  📝 {item['admin_notes']}"
+        
+        text += "\n"
     
     text += f"\n💰 {final_price:,.0f} تومان"
     
@@ -346,9 +373,14 @@ async def confirm_modified_order(update: Update, context: ContextTypes.DEFAULT_T
     message += "📦 آیتم‌های تایید شده:\n\n"
     
     for item in items:
-        # 🔴 FIX باگ 3
         message += f"• {item['product']} - {item['pack']}\n"
-        message += f"  {item['quantity']} عدد - {item['price']:,.0f} تومان\n\n"
+        message += f"  {item['quantity']} عدد"
+        
+        # ✅ نمایش توضیحات برای کاربر
+        if item.get('admin_notes'):
+            message += f"\n  📝 {item['admin_notes']}"
+        
+        message += f" - {item['price']:,.0f} تومان\n\n"
     
     message += f"💳 مبلغ قابل پرداخت: {final_price:,.0f} تومان\n\n"
     message += MESSAGES["order_confirmed"].format(
@@ -402,8 +434,13 @@ async def handle_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text += f"💰 مبلغ: {final_price:,.0f} تومان\n\n"
     
     for item in items:
-        # 🔴 FIX باگ 3
-        text += f"• {item['product']} ({item['pack']}) - {item['quantity']} عدد\n"
+        text += f"• {item['product']} ({item['pack']}) - {item['quantity']} عدد"
+        
+        # ✅ نمایش توضیحات برای ادمین
+        if item.get('admin_notes'):
+            text += f"\n  📝 {item['admin_notes']}"
+        
+        text += "\n"
     
     await context.bot.send_photo(
         ADMIN_ID,
@@ -441,8 +478,13 @@ async def view_payment_receipts(update: Update, context: ContextTypes.DEFAULT_TY
         text += f"💰 {final_price:,.0f} تومان\n\n"
         
         for item in items:
-            # 🔴 FIX باگ 3
-            text += f"• {item['product']} ({item['pack']}) - {item['quantity']} عدد\n"
+            text += f"• {item['product']} ({item['pack']}) - {item['quantity']} عدد"
+            
+            # ✅ نمایش توضیحات
+            if item.get('admin_notes'):
+                text += f"\n  📝 {item['admin_notes']}"
+            
+            text += "\n"
         
         if receipt_photo:
             await update.message.reply_photo(
@@ -483,7 +525,7 @@ async def confirm_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_caption(
         caption=query.message.caption + "\n\n✅ تایید شد - منتظر انتخاب نحوه ارسال"
     )
-    
+
 
 async def reject_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """رد پرداخت توسط ادمین"""
@@ -510,4 +552,4 @@ async def reject_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await query.edit_message_caption(
         caption=query.message.caption + "\n\n❌ رد شد - منتظر رسید جدید"
-)
+    )
