@@ -631,7 +631,7 @@ class Database:
                 new_quantity = existing[1] + actual_quantity
                 # ✅ FIX: استفاده از added_at به جای c.added_at
                 cursor.execute(
-                    "UPDATE cart SET quantity = ?, added_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    "UPDATE cart SET quantity = ? WHERE id = ?",
                     (new_quantity, existing[0])
                 )
             else:
