@@ -1,39 +1,26 @@
 """
-🚀 سیستم کش پیشرفته با LRU و TTL
-✅ LRU Cache با eviction policy
-✅ TTL (Time To Live) پیشرفته
-✅ Automatic cleanup
-✅ Cache statistics
-✅ Memory-efficient
+سیستم کش برای کاهش فشار به دیتابیس
+✅ کش محصولات
+✅ کش آمار
+✅ TTL (Time To Live)
+✅ Invalidation خودکار
 """
 import time
 import logging
-from typing import Any, Optional, Dict, Callable, List, Tuple
+from typing import Any, Optional, Dict, Callable
 from functools import wraps
-from datetime import datetime
-from collections import OrderedDict
-import threading
+from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
 
 class CacheEntry:
-    """یک رکورد کش با metadata کامل"""
+    """یک رکورد کش"""
     def __init__(self, value: Any, ttl: int):
         self.value = value
         self.created_at = time.time()
-        self.last_accessed = time.time()
         self.ttl = ttl
         self.hits = 0
-        self.size = self._estimate_size(value)
-    
-    def _estimate_size(self, value: Any) -> int:
-        """تخمین حجم value"""
-        try:
-            import sys
-            return sys.getsizeof(value)
-        except:
-            return 0
     
     def is_expired(self) -> bool:
         """بررسی انقضای کش"""
@@ -44,111 +31,13 @@ class CacheEntry:
     def get_age(self) -> float:
         """سن کش به ثانیه"""
         return time.time() - self.created_at
-    
-    def access(self):
-        """ثبت دسترسی به cache"""
-        self.last_accessed = time.time()
-        self.hits += 1
-
-
-class LRUCache:
-    """🆕 LRU Cache با محدودیت حافظه"""
-    
-    def __init__(self, max_size: int = 1000, max_memory_mb: int = 100):
-        self._cache = OrderedDict()
-        self.max_size = max_size
-        self.max_memory_bytes = max_memory_mb * 1024 * 1024
-        self._lock = threading.Lock()
-        self._total_memory = 0
-        
-        # آمار
-        self._evictions = 0
-        self._memory_evictions = 0
-    
-    def get(self, key: str) -> Optional[CacheEntry]:
-        """دریافت از cache با LRU update"""
-        with self._lock:
-            if key not in self._cache:
-                return None
-            
-            # Move to end (most recently used)
-            entry = self._cache.pop(key)
-            self._cache[key] = entry
-            entry.access()
-            
-            return entry
-    
-    def set(self, key: str, entry: CacheEntry):
-        """ذخیره در cache با LRU eviction"""
-        with self._lock:
-            # اگر قبلاً وجود داشت، حذف کن
-            if key in self._cache:
-                old_entry = self._cache.pop(key)
-                self._total_memory -= old_entry.size
-            
-            # بررسی محدودیت تعداد
-            while len(self._cache) >= self.max_size:
-                self._evict_lru()
-            
-            # بررسی محدودیت حافظه
-            while self._total_memory + entry.size > self.max_memory_bytes and self._cache:
-                self._evict_lru(memory=True)
-            
-            # اضافه کردن entry جدید
-            self._cache[key] = entry
-            self._total_memory += entry.size
-    
-    def _evict_lru(self, memory: bool = False):
-        """حذف قدیمی‌ترین item"""
-        if not self._cache:
-            return
-        
-        # حذف اولین item (قدیمی‌ترین)
-        key, entry = self._cache.popitem(last=False)
-        self._total_memory -= entry.size
-        self._evictions += 1
-        
-        if memory:
-            self._memory_evictions += 1
-        
-        logger.debug(f"🗑 LRU evicted: {key} (reason: {'memory' if memory else 'size'})")
-    
-    def delete(self, key: str) -> bool:
-        """حذف از cache"""
-        with self._lock:
-            if key in self._cache:
-                entry = self._cache.pop(key)
-                self._total_memory -= entry.size
-                return True
-            return False
-    
-    def clear(self):
-        """پاک کردن کل cache"""
-        with self._lock:
-            self._cache.clear()
-            self._total_memory = 0
-    
-    def get_stats(self) -> Dict:
-        """آمار LRU cache"""
-        with self._lock:
-            return {
-                'size': len(self._cache),
-                'memory_mb': round(self._total_memory / (1024 * 1024), 2),
-                'evictions': self._evictions,
-                'memory_evictions': self._memory_evictions
-            }
-    
-    def items(self):
-        """دریافت تمام items"""
-        with self._lock:
-            return list(self._cache.items())
 
 
 class CacheManager:
-    """🚀 مدیریت کش پیشرفته با LRU"""
+    """مدیریت کش"""
     
-    def __init__(self, max_size: int = 1000, max_memory_mb: int = 100):
-        self._lru = LRUCache(max_size, max_memory_mb)
+    def __init__(self):
+        self._cache: Dict[str, CacheEntry] = {}
         self._stats = {
             'hits': 0,
             'misses': 0,
@@ -156,29 +45,24 @@ class CacheManager:
             'invalidations': 0,
             'expirations': 0
         }
-        self._lock = threading.Lock()
-        
-        logger.info(f"✅ CacheManager initialized (max_size={max_size}, max_memory={max_memory_mb}MB)")
     
     def get(self, key: str) -> Optional[Any]:
-        """دریافت از کش با expiration check"""
-        entry = self._lru.get(key)
-        
-        if entry is None:
-            with self._lock:
-                self._stats['misses'] += 1
+        """دریافت از کش"""
+        if key not in self._cache:
+            self._stats['misses'] += 1
             return None
+        
+        entry = self._cache[key]
         
         # بررسی انقضا
         if entry.is_expired():
-            with self._lock:
-                self._stats['expirations'] += 1
-            self._lru.delete(key)
+            self._stats['expirations'] += 1
+            del self._cache[key]
             return None
         
         # Cache hit
-        with self._lock:
-            self._stats['hits'] += 1
+        entry.hits += 1
+        self._stats['hits'] += 1
         
         logger.debug(f"📦 Cache HIT: {key} (age: {entry.get_age():.1f}s, hits: {entry.hits})")
         return entry.value
@@ -191,29 +75,21 @@ class CacheManager:
             value: مقدار
             ttl: مدت اعتبار به ثانیه (0 = بی‌نهایت)
         """
-        entry = CacheEntry(value, ttl)
-        self._lru.set(key, entry)
+        self._cache[key] = CacheEntry(value, ttl)
+        self._stats['sets'] += 1
         
-        with self._lock:
-            self._stats['sets'] += 1
-        
-        logger.debug(f"💾 Cache SET: {key} (ttl: {ttl}s, size: {entry.size} bytes)")
+        logger.debug(f"💾 Cache SET: {key} (ttl: {ttl}s)")
     
     def invalidate(self, key: str):
         """حذف از کش"""
-        if self._lru.delete(key):
-            with self._lock:
-                self._stats['invalidations'] += 1
+        if key in self._cache:
+            del self._cache[key]
+            self._stats['invalidations'] += 1
             logger.debug(f"🗑 Cache INVALIDATE: {key}")
     
     def invalidate_pattern(self, pattern: str):
         """حذف تمام کش‌های با الگوی مشخص"""
-        keys_to_delete = []
-        
-        for key, entry in self._lru.items():
-            if pattern in key:
-                keys_to_delete.append(key)
-        
+        keys_to_delete = [k for k in self._cache.keys() if pattern in k]
         for key in keys_to_delete:
             self.invalidate(key)
         
@@ -221,78 +97,51 @@ class CacheManager:
     
     def clear(self):
         """پاک کردن تمام کش"""
-        lru_stats = self._lru.get_stats()
-        self._lru.clear()
-        logger.info(f"🗑 Cache CLEARED: {lru_stats['size']} items removed ({lru_stats['memory_mb']}MB freed)")
+        count = len(self._cache)
+        self._cache.clear()
+        logger.info(f"🗑 Cache CLEARED: {count} items removed")
     
     def cleanup(self):
-        """🆕 حذف کش‌های منقضی شده با progress"""
-        expired_keys = []
-        
-        for key, entry in self._lru.items():
-            if entry.is_expired():
-                expired_keys.append(key)
+        """حذف کش‌های منقضی شده"""
+        expired_keys = [k for k, v in self._cache.items() if v.is_expired()]
         
         for key in expired_keys:
-            self._lru.delete(key)
-            with self._lock:
-                self._stats['expirations'] += 1
+            del self._cache[key]
+            self._stats['expirations'] += 1
         
         if expired_keys:
             logger.info(f"🧹 Cache CLEANUP: {len(expired_keys)} expired items removed")
-        
-        return len(expired_keys)
     
     def get_stats(self) -> Dict:
-        """آمار کش با جزئیات بیشتر"""
-        with self._lock:
-            total_requests = self._stats['hits'] + self._stats['misses']
-            hit_rate = (self._stats['hits'] / total_requests * 100) if total_requests > 0 else 0
-            
-            lru_stats = self._lru.get_stats()
-            
-            return {
-                **self._stats,
-                'total_requests': total_requests,
-                'hit_rate': round(hit_rate, 2),
-                'cache_size': lru_stats['size'],
-                'memory_mb': lru_stats['memory_mb'],
-                'evictions': lru_stats['evictions'],
-                'memory_evictions': lru_stats['memory_evictions']
-            }
+        """آمار کش"""
+        total_requests = self._stats['hits'] + self._stats['misses']
+        hit_rate = (self._stats['hits'] / total_requests * 100) if total_requests > 0 else 0
+        
+        return {
+            **self._stats,
+            'total_requests': total_requests,
+            'hit_rate': round(hit_rate, 2),
+            'cache_size': len(self._cache),
+            'memory_items': sum(1 for _ in self._cache.values())
+        }
     
     def get_info(self, key: str) -> Optional[Dict]:
         """اطلاعات یک کش"""
-        entry = self._lru.get(key)
-        
-        if entry is None:
+        if key not in self._cache:
             return None
         
+        entry = self._cache[key]
         return {
             'age_seconds': entry.get_age(),
             'ttl': entry.ttl,
             'hits': entry.hits,
-            'size_bytes': entry.size,
-            'last_accessed': datetime.fromtimestamp(entry.last_accessed).isoformat(),
             'expired': entry.is_expired()
         }
-    
-    def get_top_keys(self, limit: int = 10) -> List[Tuple[str, int]]:
-        """🆕 دریافت پرکاربردترین کلیدها"""
-        items_with_hits = []
-        
-        for key, entry in self._lru.items():
-            items_with_hits.append((key, entry.hits))
-        
-        # مرتب‌سازی بر اساس hits
-        items_with_hits.sort(key=lambda x: x[1], reverse=True)
-        
-        return items_with_hits[:limit]
 
 
 # ==================== Cache Manager سراسری ====================
 
-cache_manager = CacheManager(max_size=1000, max_memory_mb=100)
+cache_manager = CacheManager()
 
 
 # ==================== Cache Decorators ====================
@@ -310,6 +159,7 @@ def cached(ttl: int = 300, key_prefix: str = ""):
         @wraps(func)
         def wrapper(*args, **kwargs):
             # ساخت کلید کش
+            # فقط از args استفاده می‌کنیم (نه kwargs) برای سادگی
             args_str = "_".join(str(arg) for arg in args if not callable(arg))
             cache_key = f"{key_prefix}:{func.__name__}:{args_str}"
             
@@ -353,7 +203,7 @@ def invalidate_cache(key_pattern: str):
 # ==================== Cache Helpers برای دیتابیس ====================
 
 class DatabaseCache:
-    """کش اختصاصی برای عملیات دیتابیس با بهینه‌سازی"""
+    """کش اختصاصی برای عملیات دیتابیس"""
     
     def __init__(self, db, cache_manager: CacheManager):
         self.db = db
@@ -361,107 +211,145 @@ class DatabaseCache:
     
     # محصولات
     
-    @cached(ttl=600, key_prefix="product")
     def get_product(self, product_id: int):
-        """دریافت محصول با کش خودکار"""
-        return self.db.get_product(product_id)
+        """دریافت محصول با کش"""
+        cache_key = f"product:{product_id}"
+        
+        cached = self.cache.get(cache_key)
+        if cached is not None:
+            return cached
+        
+        product = self.db.get_product(product_id)
+        if product:
+            self.cache.set(cache_key, product, ttl=600)  # 10 دقیقه
+        
+        return product
     
-    @cached(ttl=300, key_prefix="products")
     def get_all_products(self):
         """دریافت تمام محصولات با کش"""
-        return self.db.get_all_products()
+        cache_key = "products:all"
+        
+        cached = self.cache.get(cache_key)
+        if cached is not None:
+            return cached
+        
+        products = self.db.get_all_products()
+        self.cache.set(cache_key, products, ttl=300)  # 5 دقیقه
+        
+        return products
     
     def invalidate_product(self, product_id: int):
         """حذف کش محصول"""
-        self.cache.invalidate(f"product:get_product:{product_id}")
-        self.cache.invalidate_pattern("products:")
+        self.cache.invalidate(f"product:{product_id}")
+        self.cache.invalidate("products:all")
     
     # پک‌ها
     
-    @cached(ttl=600, key_prefix="packs")
     def get_packs(self, product_id: int):
         """دریافت پک‌های محصول با کش"""
-        return self.db.get_packs(product_id)
+        cache_key = f"packs:{product_id}"
+        
+        cached = self.cache.get(cache_key)
+        if cached is not None:
+            return cached
+        
+        packs = self.db.get_packs(product_id)
+        self.cache.set(cache_key, packs, ttl=600)  # 10 دقیقه
+        
+        return packs
     
     def invalidate_packs(self, product_id: int):
         """حذف کش پک‌ها"""
-        self.cache.invalidate(f"packs:get_packs:{product_id}")
+        self.cache.invalidate(f"packs:{product_id}")
     
     # آمار
     
-    @cached(ttl=60, key_prefix="stats")
     def get_statistics(self):
-        """دریافت آمار با کش کوتاه‌مدت"""
-        return self.db.get_statistics()
+        """دریافت آمار با کش"""
+        cache_key = "stats:main"
+        
+        cached = self.cache.get(cache_key)
+        if cached is not None:
+            return cached
+        
+        stats = self.db.get_statistics()
+        self.cache.set(cache_key, stats, ttl=60)  # 1 دقیقه
+        
+        return stats
     
     def invalidate_statistics(self):
         """حذف کش آمار"""
-        self.cache.invalidate_pattern("stats:")
+        self.cache.invalidate("stats:main")
     
     # کاربران
     
-    @cached(ttl=1800, key_prefix="user")
     def get_user(self, user_id: int):
         """دریافت کاربر با کش"""
-        return self.db.get_user(user_id)
+        cache_key = f"user:{user_id}"
+        
+        cached = self.cache.get(cache_key)
+        if cached is not None:
+            return cached
+        
+        user = self.db.get_user(user_id)
+        if user:
+            self.cache.set(cache_key, user, ttl=1800)  # 30 دقیقه
+        
+        return user
     
     def invalidate_user(self, user_id: int):
         """حذف کش کاربر"""
-        self.cache.invalidate(f"user:get_user:{user_id}")
+        self.cache.invalidate(f"user:{user_id}")
     
     # سبد خرید
     
-    @cached(ttl=120, key_prefix="cart")
     def get_cart(self, user_id: int):
         """دریافت سبد خرید با کش"""
-        return self.db.get_cart(user_id)
+        cache_key = f"cart:{user_id}"
+        
+        cached = self.cache.get(cache_key)
+        if cached is not None:
+            return cached
+        
+        cart = self.db.get_cart(user_id)
+        self.cache.set(cache_key, cart, ttl=120)  # 2 دقیقه
+        
+        return cart
     
     def invalidate_cart(self, user_id: int):
         """حذف کش سبد خرید"""
-        self.cache.invalidate(f"cart:get_cart:{user_id}")
+        self.cache.invalidate(f"cart:{user_id}")
 
 
 # ==================== Auto Cleanup ====================
 
+import threading
+
 class CacheCleanupThread(threading.Thread):
-    """🆕 Thread بهینه شده برای پاکسازی خودکار کش"""
+    """Thread برای پاکسازی خودکار کش"""
     
     def __init__(self, cache_manager: CacheManager, interval: int = 300):
         super().__init__(daemon=True)
         self.cache_manager = cache_manager
         self.interval = interval
         self.running = True
-        self.cleanup_count = 0
     
     def run(self):
-        """اجرای پاکسازی دوره‌ای با آمار"""
-        logger.info("✅ Cache cleanup thread started")
-        
+        """اجرای پاکسازی دوره‌ای"""
         while self.running:
             time.sleep(self.interval)
             try:
-                removed = self.cache_manager.cleanup()
-                self.cleanup_count += 1
-                
-                if removed > 0:
-                    logger.info(f"🧹 Cleanup #{self.cleanup_count}: {removed} items removed")
-                
-                # نمایش آمار هر 10 cleanup
-                if self.cleanup_count % 10 == 0:
-                    stats = self.cache_manager.get_stats()
-                    logger.info(f"📊 Cache Stats: {stats}")
-                    
+                self.cache_manager.cleanup()
             except Exception as e:
-                logger.error(f"❌ Error in cache cleanup: {e}")
+                logger.error(f"Error in cache cleanup: {e}")
     
     def stop(self):
         """توقف thread"""
         self.running = False
-        logger.info(f"🛑 Cache cleanup thread stopped (total cleanups: {self.cleanup_count})")
 
 
 # شروع خودکار پاکسازی
 cleanup_thread = CacheCleanupThread(cache_manager, interval=300)
 cleanup_thread.start()
 
-logger.info("✅ Cache system initialized with LRU and auto-cleanup")
+logger.info("✅ Cache cleanup thread started")
