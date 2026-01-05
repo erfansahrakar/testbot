@@ -1,6 +1,7 @@
 """
 ربات فروشگاه مانتو تلگرام
-
+✅ اضافه شده: handler های سفارشات با تاریخ شمسی
+✅ اضافه شده: ادامه پرداخت و حذف سفارش
 """
 import logging
 import signal
@@ -71,11 +72,14 @@ async def handle_text_messages(update: Update, context):
     
     from handlers.admin import add_product_start, list_products, show_statistics
     from handlers.order import view_pending_orders, view_payment_receipts
-    from handlers.user import view_cart, view_my_orders, view_my_address, contact_us
+    from handlers.user import view_cart, view_my_address, contact_us
     from handlers.discount import discount_menu
     from handlers.broadcast import broadcast_start
     from backup_scheduler import manual_backup
     from handlers.analytics import send_analytics_menu
+    
+    # 🆕 ایمپورت تابع جدید
+    from handlers.order import view_user_orders
     
     # دستورات ادمین
     if user_id == ADMIN_ID:
@@ -97,14 +101,15 @@ async def handle_text_messages(update: Update, context):
             return await show_statistics(update, context)
         elif text == "📈 گزارش‌های تحلیلی":
             return await send_analytics_menu(update, context)
-        elif text == "🎛 داشبورد":  # 🆕
+        elif text == "🎛 داشبورد":
             return await admin_dashboard(update, context)
     
     # دستورات کاربر
     if text == "🛒 سبد خرید":
         await view_cart(update, context)
     elif text == "📦 سفارشات من":
-        await view_my_orders(update, context)
+        # 🆕 تغییر به تابع جدید
+        await view_user_orders(update, context)
     elif text == "📍 آدرس ثبت شده من":
         await view_my_address(update, context)
     elif text == "📞 تماس با ما":
@@ -130,15 +135,10 @@ async def handle_photos(update: Update, context):
     await handle_receipt(update, context)
 
 
-# 🔴 FIX باگ 12: فقط یک error handler - EnhancedErrorHandler
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    🔴 FIX باگ 12: مدیریت خطاها - نسخه واحد
-    فقط از EnhancedErrorHandler استفاده می‌کنیم
-    """
+    """مدیریت خطاها"""
     error = context.error
     
-    # استفاده از Enhanced Error Handler
     enhanced_error_handler = context.bot_data.get('error_handler')
     
     if enhanced_error_handler:
@@ -152,10 +152,8 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 extra_info={'update_type': type(update).__name__ if update else 'None'}
             )
         except Exception as e:
-            # اگر خود error handler خطا داد، لاگ ساده کن
             logger.error(f"❌ Error in error handler: {e}", exc_info=True)
     else:
-        # Fallback - اگر enhanced handler در دسترس نبود
         logger.error(f"❌ Exception while handling update {update}:", exc_info=error)
         
         if update and update.effective_user:
@@ -237,7 +235,6 @@ def main():
     """تابع اصلی"""
     log_startup()
     
-    # ثبت زمان شروع
     start_time = time.time()
     
     # Import توابع
@@ -280,10 +277,12 @@ def main():
     from handlers.order import (
         confirm_order, reject_order, confirm_payment, reject_payment,
         remove_item_from_order, reject_full_order, back_to_order_review,
-        confirm_modified_order
+        confirm_modified_order,
+        # 🆕 توابع جدید
+        handle_continue_payment,
+        handle_delete_order
     )
     
-    # 🆕 Import توابع جدید با توضیحات
     from handlers.order_management import (
         increase_item_quantity,
         decrease_item_quantity,
@@ -313,13 +312,8 @@ def main():
     # ایجاد دیتابیس
     db = Database()
     
-    # 🆕 ایجاد DatabaseCache
     db_cache = DatabaseCache(db, cache_manager)
-    
-    # 🆕 ایجاد Health Checker
     health_checker = HealthChecker(db, start_time)
-    
-    # 🆕 ایجاد Error Handler
     enhanced_error_handler = EnhancedErrorHandler(health_checker)
     
     # ساخت اپلیکیشن
@@ -337,12 +331,11 @@ def main():
     
     # ذخیره در bot_data
     application.bot_data['db'] = db
-    application.bot_data['db_cache'] = db_cache  # 🆕
-    application.bot_data['cache_manager'] = cache_manager  # 🆕
-    application.bot_data['health_checker'] = health_checker  # 🆕
-    application.bot_data['error_handler'] = enhanced_error_handler  # 🆕
+    application.bot_data['db_cache'] = db_cache
+    application.bot_data['cache_manager'] = cache_manager
+    application.bot_data['health_checker'] = health_checker
+    application.bot_data['error_handler'] = enhanced_error_handler
     
-    # تنظیم Signal Handlers
     setup_signal_handlers(application, db)
     
     # اضافه کردن Global Rate Limiter
@@ -365,14 +358,13 @@ def main():
     except Exception as e:
         logger.warning(f"⚠️ خطا در راه‌اندازی بکاپ خودکار: {e}")
     
-    # 🔴 FIX باگ 11: راه‌اندازی به‌روزرسانی دوره‌ای آمار
+    # راه‌اندازی به‌روزرسانی دوره‌ای آمار
     try:
         if hasattr(application, 'job_queue') and application.job_queue is not None:
-            # هر ساعت آمار را به‌روزرسانی کن
             application.job_queue.run_repeating(
                 scheduled_stats_update,
-                interval=3600,  # 3600 ثانیه = 1 ساعت
-                first=10,  # اولین بار بعد از 10 ثانیه
+                interval=3600,
+                first=10,
                 name="stats_update"
             )
             logger.info("✅ به‌روزرسانی دوره‌ای آمار فعال شد (هر 1 ساعت)")
@@ -472,12 +464,11 @@ def main():
         fallbacks=[MessageHandler(filters.Regex("^❌ لغو$"), user_start)],
     )
     
-    # 🆕 ConversationHandler با state جدید برای توضیحات
     edit_item_qty_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(edit_item_quantity_start, pattern="^edit_item_qty:")],
         states={
             EDIT_ITEM_QUANTITY: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_item_quantity_received)],
-            EDIT_ITEM_NOTES: [  # 🆕 State جدید
+            EDIT_ITEM_NOTES: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, edit_item_notes_received),
                 CallbackQueryHandler(skip_item_notes, pattern="^skip_notes:"),
                 CallbackQueryHandler(cancel_item_edit, pattern="^cancel_edit:")
@@ -537,13 +528,12 @@ def main():
     application.add_handler(create_discount_conv)
     application.add_handler(broadcast_conv)
     application.add_handler(user_discount_conv)
-    application.add_handler(edit_item_qty_conv)  # 🆕 با state جدید
+    application.add_handler(edit_item_qty_conv)
     application.add_handler(finalize_order_conv)
     application.add_handler(edit_address_conv)
     application.add_handler(edit_user_info_conv)
     application.add_handler(final_edit_conv)
     
-    # 🆕 Dashboard handlers
     application.add_handler(CallbackQueryHandler(handle_dashboard_callback, pattern="^dash:"))
     
     # CallbackQuery هندلرها
@@ -580,6 +570,10 @@ def main():
     application.add_handler(CallbackQueryHandler(confirm_payment, pattern="^confirm_payment:"))
     application.add_handler(CallbackQueryHandler(reject_payment, pattern="^reject_payment:"))
     
+    # 🆕 Handler های جدید
+    application.add_handler(CallbackQueryHandler(handle_continue_payment, pattern="^continue_payment:"))
+    application.add_handler(CallbackQueryHandler(handle_delete_order, pattern="^delete_order:"))
+    
     application.add_handler(CallbackQueryHandler(increase_item_quantity, pattern="^increase_item:"))
     application.add_handler(CallbackQueryHandler(decrease_item_quantity, pattern="^decrease_item:"))
     
@@ -597,7 +591,6 @@ def main():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_messages))
     application.add_handler(MessageHandler(filters.PHOTO, handle_photos))
     
-    # 🔴 FIX باگ 12: فقط یک error handler
     application.add_error_handler(error_handler)
     
     # شروع ربات
@@ -606,9 +599,9 @@ def main():
     logger.info("✅ Enhanced Error Handler فعال")
     logger.info("✅ Cache Manager فعال")
     logger.info("✅ Admin Dashboard فعال")
-    logger.info("✅ FIX باگ 11: Analytics بهینه شده")
-    logger.info("✅ FIX باگ 12: Duplicate error handler حذف شد")
-    logger.info("✅ FIX: قابلیت توضیحات ادمین برای آیتم‌ها اضافه شد")
+    logger.info("✅ تاریخ شمسی برای سفارشات فعال")
+    logger.info("✅ دکمه‌های دینامیک برای سفارشات فعال")
+    logger.info("✅ قابلیت حذف سفارش توسط کاربر فعال")
     
     try:
         application.run_polling(allowed_updates=Update.ALL_TYPES)
