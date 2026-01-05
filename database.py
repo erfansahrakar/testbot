@@ -611,54 +611,54 @@ class Database:
     # سبد خرید
     
     def add_to_cart(self, user_id: int, product_id: int, pack_id: int, quantity: int = 1):
-        """✅ FIX: بهینه شده با UPSERT - استفاده از added_at"""
-        pack = self.get_pack(pack_id)
-        if not pack:
-            return
+    """✅ FIX: بدون استفاده از added_at در UPDATE"""
+    pack = self.get_pack(pack_id)
+    if not pack:
+        return
+    
+    pack_quantity = pack[3]
+    actual_quantity = quantity * pack_quantity
+    
+    with self.transaction(immediate=True) as cursor:
+        # بررسی وجود
+        cursor.execute(
+            "SELECT id, quantity FROM cart WHERE user_id = ? AND product_id = ? AND pack_id = ?",
+            (user_id, product_id, pack_id)
+        )
+        existing = cursor.fetchone()
         
-        pack_quantity = pack[3]
-        actual_quantity = quantity * pack_quantity
-        
-        with self.transaction(immediate=True) as cursor:
-            # بررسی وجود
+        if existing:
+            new_quantity = existing[1] + actual_quantity
+            # ✅ FIX: بدون added_at
             cursor.execute(
-                "SELECT id, quantity FROM cart WHERE user_id = ? AND product_id = ? AND pack_id = ?",
-                (user_id, product_id, pack_id)
+                "UPDATE cart SET quantity = ? WHERE id = ?",
+                (new_quantity, existing[0])
             )
-            existing = cursor.fetchone()
-            
-            if existing:
-                new_quantity = existing[1] + actual_quantity
-                # ✅ FIX: استفاده از added_at به جای c.added_at
-                cursor.execute(
-                    "UPDATE cart SET quantity = ? WHERE id = ?",
-                    (new_quantity, existing[0])
-                )
-            else:
-                cursor.execute(
-                    "INSERT INTO cart (user_id, product_id, pack_id, quantity) VALUES (?, ?, ?, ?)",
-                    (user_id, product_id, pack_id, actual_quantity)
-                )
-        
-        self._invalidate_cache(f"cart:{user_id}")
+        else:
+            cursor.execute(
+                "INSERT INTO cart (user_id, product_id, pack_id, quantity) VALUES (?, ?, ?, ?)",
+                (user_id, product_id, pack_id, actual_quantity)
+            )
+    
+    self._invalidate_cache(f"cart:{user_id}")
     
     def get_cart(self, user_id: int) -> List:
-        """✅ FIX: با cleanup خودکار و query صحیح"""
-        self.clean_invalid_cart_items(user_id)
-        
-        cache_key = f"cart_items:{user_id}"
-        return self._get_cached_query(
-            cache_key,
-            """
-            SELECT c.id, p.name, pk.name, pk.quantity, pk.price, c.quantity
-            FROM cart c
-            JOIN products p ON c.product_id = p.id
-            JOIN packs pk ON c.pack_id = pk.id
-            WHERE c.user_id = ?
-            ORDER BY c.added_at DESC
-            """,
-            (user_id,)
-        )
+    """✅ FIX: بدون ORDER BY added_at"""
+    self.clean_invalid_cart_items(user_id)
+    
+    cache_key = f"cart_items:{user_id}"
+    return self._get_cached_query(
+        cache_key,
+        """
+        SELECT c.id, p.name, pk.name, pk.quantity, pk.price, c.quantity
+        FROM cart c
+        JOIN products p ON c.product_id = p.id
+        JOIN packs pk ON c.pack_id = pk.id
+        WHERE c.user_id = ?
+        ORDER BY c.id DESC
+        """,
+        (user_id,)
+    )
     
     def clear_cart(self, user_id: int):
         with self.transaction(immediate=True) as cursor:
