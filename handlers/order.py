@@ -165,7 +165,7 @@ async def reject_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def remove_item_from_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """حذف یک آیتم از سفارش"""
+    """🔴 FIX: حذف آیتم با چک تعداد"""
     query = update.callback_query
     await query.answer()
     
@@ -183,13 +183,19 @@ async def remove_item_from_order(update: Update, context: ContextTypes.DEFAULT_T
     order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at = order
     items = json.loads(items_json)
     
+    # 🔴 FIX: چک کردن آیتم آخر
     if len(items) <= 1:
-        await query.answer("⚠️ نمی‌توانید آخرین آیتم را حذف کنید! از 'رد کامل سفارش' استفاده کنید.", show_alert=True)
-        return
+        await query.answer(
+            "⚠️ نمی‌توانید آخرین آیتم را حذف کنید!\n\n"
+            "💡 اگر می‌خواهید کل سفارش رد بشه، از دکمه 'رد کامل' استفاده کنید.",
+            show_alert=True
+        )
+        return  # 🔴 جلوگیری از حذف
     
+    # حذف آیتم
     removed_item = items.pop(item_index)
     
-    # محاسبه مجدد قیمت کل
+    # محاسبه مجدد قیمت
     new_total = sum(item['price'] for item in items)
     
     # محاسبه مجدد تخفیف
@@ -214,12 +220,14 @@ async def remove_item_from_order(update: Update, context: ContextTypes.DEFAULT_T
                 
                 new_final = new_total - new_discount
     
+    # بروزرسانی
     conn = db._get_conn()
     cursor = conn.cursor()
-    cursor.execute(
-        "UPDATE orders SET items = ?, total_price = ?, discount_amount = ?, final_price = ? WHERE id = ?",
-        (json.dumps(items, ensure_ascii=False), new_total, new_discount, new_final, order_id)
-    )
+    cursor.execute("""
+        UPDATE orders 
+        SET items = ?, total_price = ?, discount_amount = ?, final_price = ? 
+        WHERE id = ?
+    """, (json.dumps(items, ensure_ascii=False), new_total, new_discount, new_final, order_id))
     conn.commit()
     
     from keyboards import order_items_removal_keyboard
@@ -229,19 +237,23 @@ async def remove_item_from_order(update: Update, context: ContextTypes.DEFAULT_T
     text += "📋 آیتم‌های باقی‌مانده:\n\n"
     
     for idx, item in enumerate(items):
-        # 🔴 FIX باگ 3
         text += f"{idx + 1}. {item['product']} - {item['pack']}\n"
         text += f"   {item['quantity']} عدد - {item['price']:,.0f} تومان\n\n"
     
     text += f"💳 جمع جدید: {new_final:,.0f} تومان\n\n"
-    text += "می‌خواهید آیتم دیگری حذف کنید؟"
+    
+    # 🔴 FIX: اگه فقط 1 آیتم مونده، پیام بده
+    if len(items) == 1:
+        text += "⚠️ **این آخرین آیتم است!**\n"
+        text += "برای رد کامل سفارش از دکمه زیر استفاده کنید.\n\n"
+    else:
+        text += "می‌خواهید آیتم دیگری حذف کنید؟"
     
     await query.edit_message_text(
         text,
         parse_mode='Markdown',
         reply_markup=order_items_removal_keyboard(order_id, items)
     )
-
 
 async def reject_full_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """✅ FIX: رد کامل سفارش با پیام بهتر"""
