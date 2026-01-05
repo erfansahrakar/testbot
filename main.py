@@ -1,9 +1,13 @@
 """
 ربات فروشگاه مانتو تلگرام
-فایل اصلی - نسخه کامل با قابلیت‌های جدید
-🆕 اضافه شده: کد تخفیف کاربر، مدیریت پیشرفته سفارش، پیام همگانی
+فایل اصلی - نسخه اصلاح شده
+✅ Graceful Shutdown اضافه شده
+✅ رفع باگ Global Rate Limit
+✅ بهبود Error Handling
 """
 import logging
+import signal
+import sys
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -116,13 +120,44 @@ async def handle_photos(update: Update, context):
     await handle_receipt(update, context)
 
 
-async def error_handler(update: Update, context):
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """مدیریت خطاها"""
-    logger.error(f"خطا: {context.error}")
+    error = context.error
+    
+    # لاگ کامل
+    logger.error(f"❌ Exception while handling update {update}:", exc_info=error)
+    
+    # پیام به کاربر
+    if update and update.effective_user:
+        try:
+            await context.bot.send_message(
+                update.effective_user.id,
+                "❌ متأسفانه خطایی رخ داد. لطفاً دوباره تلاش کنید.\n\n"
+                "اگه مشکل ادامه داشت، با پشتیبانی تماس بگیرید."
+            )
+        except:
+            pass
+    
+    # اطلاع به ادمین
+    if isinstance(error, Exception):
+        error_text = f"""
+🚨 **خطای ربات**
+
+نوع: `{type(error).__name__}`
+پیام: `{str(error)}`
+کاربر: {update.effective_user.id if update and update.effective_user else 'Unknown'}
+        """
+        
+        try:
+            await context.bot.send_message(ADMIN_ID, error_text, parse_mode='Markdown')
+        except:
+            pass
+
 
 async def global_rate_limit_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     بررسی محدودیت سراسری برای همه درخواست‌ها
+    ✅ اصلاح شده: دیگه exception throw نمی‌کنه
     محدودیت: 20 درخواست در دقیقه
     """
     # فقط برای کاربران (نه برای channel post ها)
@@ -131,16 +166,15 @@ async def global_rate_limit_check(update: Update, context: ContextTypes.DEFAULT_
     
     user_id = update.effective_user.id
     
-    # ✅ ادمین bypass کنه
-    from config import ADMIN_ID
+    # ادمین bypass کنه
     if user_id == ADMIN_ID:
-        return  # ادمین محدودیت نداره
+        return
     
     # بررسی محدودیت
     allowed, remaining_time = rate_limiter.check_rate_limit(
         user_id,
-        max_requests=20,  # 20 درخواست
-        window_seconds=60  # در 1 دقیقه
+        max_requests=20,
+        window_seconds=60
     )
     
     if not allowed:
@@ -168,16 +202,47 @@ async def global_rate_limit_check(update: Update, context: ContextTypes.DEFAULT_
                     show_alert=True
                 )
         except Exception as e:
-            logger.error(f"Rate limit error: {e}")
+            logger.error(f"❌ Rate limit error: {e}")
         
-        # جلوگیری از ادامه
-        raise Exception("Rate limited")
+        # ✅ FIX: فقط return کن، exception نزن
+        return
+    
+    # اگه allowed بود، ادامه بده (هیچی return نکن)
 
+
+def setup_signal_handlers(application, db):
+    """
+    تنظیم signal handlers برای Graceful Shutdown
+    """
+    def signal_handler(sig, frame):
+        """مدیریت سیگنال خروج"""
+        logger.info(f"🛑 Received signal {sig}, shutting down gracefully...")
+        
+        # بستن دیتابیس
+        try:
+            if db:
+                db.close()
+                logger.info("✅ Database closed successfully")
+        except Exception as e:
+            logger.error(f"❌ Error closing database: {e}")
+        
+        # لاگ shutdown
+        log_shutdown()
+        
+        # خروج
+        sys.exit(0)
+    
+    # ثبت signal handlers
+    signal.signal(signal.SIGINT, signal_handler)   # Ctrl+C
+    signal.signal(signal.SIGTERM, signal_handler)  # kill command
+    
+    logger.info("✅ Signal handlers registered")
 
 
 def main():
-    log_startup()  # 🆕
     """تابع اصلی"""
+    log_startup()
+    
     # Import توابع admin
     from handlers.admin import (
         add_product_start, product_name_received, product_desc_received,
@@ -213,7 +278,7 @@ def main():
         back_to_packs, user_start, confirm_user_info, edit_user_info_for_order
     )
     
-    # 🆕 Import توابع user_discount (کد تخفیف کاربر)
+    # Import توابع user_discount (کد تخفیف کاربر)
     from handlers.user_discount import (
         apply_discount_start,
         discount_code_entered
@@ -226,7 +291,7 @@ def main():
         confirm_modified_order
     )
     
-    # 🆕 Import توابع order_management (مدیریت پیشرفته)
+    # Import توابع order_management (مدیریت پیشرفته)
     from handlers.order_management import (
         increase_item_quantity,
         decrease_item_quantity,
@@ -270,18 +335,17 @@ def main():
     
     # ذخیره دیتابیس در bot_data
     application.bot_data['db'] = db
-
-
+    
+    # ✅ تنظیم Signal Handlers برای Graceful Shutdown
+    setup_signal_handlers(application, db)
+    
+    # ✅ اضافه کردن Global Rate Limiter (اصلاح شده)
     application.add_handler(
         TypeHandler(Update, global_rate_limit_check),
-        group=-1  # اجرا قبل از همه handler ها
+        group=-1
     )
-    
     logger.info("✅ Global rate limiter فعال شد")
-
     
-    from telegram.ext import BaseHandler
-        
     # راه‌اندازی بکاپ خودکار
     from backup_scheduler import setup_backup_job, setup_backup_folder
     setup_backup_folder()
@@ -294,9 +358,9 @@ def main():
             logger.warning("⚠️ JobQueue در دسترس نیست - بکاپ خودکار غیرفعال است")
     except Exception as e:
         logger.warning(f"⚠️ خطا در راه‌اندازی بکاپ خودکار: {e}")
-
     
-    # ==================== ConversationHandler برای افزودن محصول ====================
+    # ==================== ConversationHandler ها ====================
+    
     add_product_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^➕ افزودن محصول$"), add_product_start)],
         states={
@@ -307,7 +371,6 @@ def main():
         fallbacks=[MessageHandler(filters.Regex("^❌ لغو$"), admin_start)],
     )
     
-    # ==================== ConversationHandler برای افزودن پک ====================
     add_pack_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(add_pack_start, pattern="^add_pack:")],
         states={
@@ -318,7 +381,6 @@ def main():
         fallbacks=[MessageHandler(filters.Regex("^❌ لغو$"), admin_start)],
     )
     
-    # ==================== ConversationHandler برای ویرایش نام محصول ====================
     edit_product_name_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(edit_product_name_start, pattern="^edit_prod_name:")],
         states={
@@ -327,7 +389,6 @@ def main():
         fallbacks=[MessageHandler(filters.Regex("^❌ لغو$"), admin_start)],
     )
     
-    # ==================== ConversationHandler برای ویرایش توضیحات محصول ====================
     edit_product_desc_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(edit_product_desc_start, pattern="^edit_prod_desc:")],
         states={
@@ -336,7 +397,6 @@ def main():
         fallbacks=[MessageHandler(filters.Regex("^❌ لغو$"), admin_start)],
     )
     
-    # ==================== ConversationHandler برای ویرایش عکس محصول ====================
     edit_product_photo_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(edit_product_photo_start, pattern="^edit_prod_photo:")],
         states={
@@ -345,7 +405,6 @@ def main():
         fallbacks=[MessageHandler(filters.Regex("^❌ لغو$"), admin_start)],
     )
     
-    # ==================== ConversationHandler برای ویرایش پک ====================
     edit_pack_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(edit_pack_start, pattern="^edit_pack:")],
         states={
@@ -356,7 +415,6 @@ def main():
         fallbacks=[MessageHandler(filters.Regex("^❌ لغو$"), admin_start)],
     )
     
-    # ==================== ConversationHandler برای ایجاد تخفیف ====================
     create_discount_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(create_discount_start, pattern="^create_discount$")],
         states={
@@ -372,7 +430,6 @@ def main():
         fallbacks=[MessageHandler(filters.Regex("^❌ لغو$"), admin_start)],
     )
     
-    # 🆕 ==================== ConversationHandler برای پیام همگانی (اصلاح شده) ====================
     broadcast_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^📢 پیام همگانی$"), broadcast_start)],
         states={
@@ -385,7 +442,6 @@ def main():
         fallbacks=[MessageHandler(filters.Regex("^❌ لغو$"), admin_start)],
     )
     
-    # 🆕 ==================== ConversationHandler برای کد تخفیف کاربر ====================
     user_discount_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(apply_discount_start, pattern="^apply_discount$")],
         states={
@@ -394,7 +450,6 @@ def main():
         fallbacks=[MessageHandler(filters.Regex("^❌ لغو$"), user_start)],
     )
     
-    # 🆕 ==================== ConversationHandler برای ویرایش تعداد آیتم ====================
     edit_item_qty_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(edit_item_quantity_start, pattern="^edit_item_qty:")],
         states={
@@ -403,7 +458,6 @@ def main():
         fallbacks=[MessageHandler(filters.Regex("^❌ لغو$"), admin_start)],
     )
     
-    # ==================== ConversationHandler برای نهایی کردن سفارش ====================
     finalize_order_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(finalize_order_start, pattern="^finalize_order$")],
         states={
@@ -414,7 +468,6 @@ def main():
         fallbacks=[MessageHandler(filters.Regex("^❌ لغو$"), user_start)],
     )
     
-    # ==================== ConversationHandler برای ویرایش آدرس ====================
     edit_address_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(edit_address, pattern="^edit_address$")],
         states={
@@ -425,7 +478,6 @@ def main():
         fallbacks=[MessageHandler(filters.Regex("^❌ لغو$"), user_start)],
     )
     
-    # ==================== ConversationHandler برای ویرایش اطلاعات موقع سفارش ====================
     edit_user_info_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(edit_user_info_for_order, pattern="^edit_user_info$")],
         states={
@@ -436,7 +488,6 @@ def main():
         fallbacks=[MessageHandler(filters.Regex("^❌ لغو$"), user_start)],
     )
     
-    # ==================== ConversationHandler برای ویرایش در فاکتور نهایی ====================
     final_edit_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(final_edit_order, pattern="^final_edit$")],
         states={
@@ -447,7 +498,7 @@ def main():
         fallbacks=[MessageHandler(filters.Regex("^❌ لغو$"), user_start)],
     )
     
-    # ==================== هندلرهای اصلی ====================
+    # اضافه کردن handler ها
     application.add_handler(CommandHandler("start", start))
     application.add_handler(add_product_conv)
     application.add_handler(add_pack_conv)
@@ -457,15 +508,14 @@ def main():
     application.add_handler(edit_pack_conv)
     application.add_handler(create_discount_conv)
     application.add_handler(broadcast_conv)
-    application.add_handler(user_discount_conv)  # 🆕
-    application.add_handler(edit_item_qty_conv)  # 🆕
+    application.add_handler(user_discount_conv)
+    application.add_handler(edit_item_qty_conv)
     application.add_handler(finalize_order_conv)
     application.add_handler(edit_address_conv)
     application.add_handler(edit_user_info_conv)
     application.add_handler(final_edit_conv)
     
-    # ==================== CallbackQuery هندلرها ====================
-    # محصولات و پک‌ها
+    # CallbackQuery هندلرها
     application.add_handler(CallbackQueryHandler(handle_pack_selection, pattern="^select_pack:"))
     application.add_handler(CallbackQueryHandler(back_to_packs, pattern="^back_to_packs:"))
     application.add_handler(CallbackQueryHandler(edit_product_menu, pattern="^edit_product:"))
@@ -476,24 +526,20 @@ def main():
     application.add_handler(CallbackQueryHandler(delete_pack_confirm, pattern="^delete_pack:"))
     application.add_handler(CallbackQueryHandler(back_to_product, pattern="^back_to_product:"))
     
-    # مدیریت پک‌ها
     application.add_handler(CallbackQueryHandler(manage_packs_menu, pattern="^manage_packs:"))
     application.add_handler(CallbackQueryHandler(confirm_delete_pack, pattern="^confirm_delete_pack:"))
     application.add_handler(CallbackQueryHandler(delete_pack_final, pattern="^delete_pack_final:"))
     
-    # سبد خرید
     application.add_handler(CallbackQueryHandler(view_cart, pattern="^view_cart$"))
     application.add_handler(CallbackQueryHandler(remove_from_cart, pattern="^remove_cart:"))
     application.add_handler(CallbackQueryHandler(clear_cart, pattern="^clear_cart$"))
     
-    # سفارش
     application.add_handler(CallbackQueryHandler(handle_shipping_selection, pattern="^ship_"))
     application.add_handler(CallbackQueryHandler(final_confirm_order, pattern="^final_confirm$"))
     application.add_handler(CallbackQueryHandler(use_old_address, pattern="^use_old_address$"))
     application.add_handler(CallbackQueryHandler(use_new_address, pattern="^use_new_address$"))
     application.add_handler(CallbackQueryHandler(confirm_user_info, pattern="^confirm_user_info$"))
     
-    # هندلرهای سفارش (ادمین)
     application.add_handler(CallbackQueryHandler(confirm_order, pattern="^confirm_order:"))
     application.add_handler(CallbackQueryHandler(reject_order, pattern="^reject_order:"))
     application.add_handler(CallbackQueryHandler(remove_item_from_order, pattern="^remove_item:"))
@@ -503,36 +549,43 @@ def main():
     application.add_handler(CallbackQueryHandler(confirm_payment, pattern="^confirm_payment:"))
     application.add_handler(CallbackQueryHandler(reject_payment, pattern="^reject_payment:"))
     
-    # 🆕 مدیریت پیشرفته سفارش
     application.add_handler(CallbackQueryHandler(increase_item_quantity, pattern="^increase_item:"))
     application.add_handler(CallbackQueryHandler(decrease_item_quantity, pattern="^decrease_item:"))
     
-    # تخفیف‌ها
     application.add_handler(CallbackQueryHandler(list_discounts, pattern="^list_discounts$"))
     application.add_handler(CallbackQueryHandler(view_discount, pattern="^view_discount:"))
     application.add_handler(CallbackQueryHandler(toggle_discount, pattern="^toggle_discount:"))
     application.add_handler(CallbackQueryHandler(delete_discount, pattern="^delete_discount:"))
     
-    # پیام همگانی
     application.add_handler(CallbackQueryHandler(confirm_broadcast, pattern="^confirm_broadcast$"))
     application.add_handler(CallbackQueryHandler(cancel_broadcast, pattern="^cancel_broadcast$"))
     
-    # گزارش‌های تحلیلی
     application.add_handler(CallbackQueryHandler(handle_analytics_report, pattern="^analytics:"))
     
-    # ==================== Message هندلرها ====================
+    # Message هندلرها
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_messages))
     application.add_handler(MessageHandler(filters.PHOTO, handle_photos))
     
-    # Error handler
+    # ✅ Error handler بهبود یافته
     application.add_error_handler(error_handler)
     
     # شروع ربات
     logger.info("🤖 ربات شروع به کار کرد!")
+    
     try:
         application.run_polling(allowed_updates=Update.ALL_TYPES)
+    except KeyboardInterrupt:
+        logger.info("🛑 Received keyboard interrupt")
+    except Exception as e:
+        logger.error(f"❌ Fatal error: {e}", exc_info=True)
     finally:
-        log_shutdown()  # 🆕
-        
+        # Cleanup
+        try:
+            db.close()
+        except:
+            pass
+        log_shutdown()
+
+
 if __name__ == '__main__':
     main()
