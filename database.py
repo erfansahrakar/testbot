@@ -1,8 +1,8 @@
 """
 مدیریت دیتابیس با SQLite
-✅ بروزرسانی شده با پشتیبانی Cache
-✅ Thread Safety کامل
-✅ Transaction Management بهبود یافته
+✅ اصلاح شده: Thread Safety کامل
+✅ اصلاح شده: استفاده صحیح از Connection Pool
+✅ بهبود یافته: Transaction Management
 ✅ Graceful Shutdown
 """
 import sqlite3
@@ -95,20 +95,20 @@ class DatabaseError(Exception):
 
 
 class Database:
-    """کلاس مدیریت دیتابیس با امنیت بالا"""
+    """کلاس مدیریت دیتابیس با امنیت بالا
+    ✅ FIX: Thread Safety کامل - دیگه self.cursor سراسری نداریم
+    """
 
     def __init__(self, cache_manager=None):
-        """بروزرسانی شده با پشتیبانی Cache"""
+        """✅ FIX: حذف self.conn و self.cursor سراسری"""
         self.pool = DatabaseConnectionPool(DATABASE_NAME)
-        self.conn = self.pool.get_connection()
-        self.cursor = self.conn.cursor()
         self.cache_manager = cache_manager
         self.create_tables()
         
         logger.info("✅ Database initialized successfully")
     
     def _get_conn(self) -> sqlite3.Connection:
-        """دریافت connection"""
+        """دریافت connection برای thread فعلی"""
         return self.pool.get_connection()
     
     @contextmanager
@@ -143,22 +143,22 @@ class Database:
     def clean_invalid_cart_items(self, user_id: int):
         """حذف آیتم‌های نامعتبر از سبد"""
         try:
-            self.cursor.execute("""
-                DELETE FROM cart 
-                WHERE user_id = ? 
-                AND (
-                    product_id NOT IN (SELECT id FROM products)
-                    OR pack_id NOT IN (SELECT id FROM packs)
-                )
-            """, (user_id,))
-            self.conn.commit()
-        
-            deleted_count = self.cursor.rowcount
-            if deleted_count > 0:
-                logger.info(f"🧹 {deleted_count} آیتم نامعتبر از سبد کاربر {user_id} حذف شد")
-                self._invalidate_cache(f"cart:{user_id}")
-        
-            return deleted_count
+            with self.transaction() as cursor:
+                cursor.execute("""
+                    DELETE FROM cart 
+                    WHERE user_id = ? 
+                    AND (
+                        product_id NOT IN (SELECT id FROM products)
+                        OR pack_id NOT IN (SELECT id FROM packs)
+                    )
+                """, (user_id,))
+                
+                deleted_count = cursor.rowcount
+                if deleted_count > 0:
+                    logger.info(f"🧹 {deleted_count} آیتم نامعتبر از سبد کاربر {user_id} حذف شد")
+                    self._invalidate_cache(f"cart:{user_id}")
+                
+                return deleted_count
         
         except Exception as e:
             logger.error(f"❌ خطا در پاکسازی سبد کاربر {user_id}: {e}")
@@ -166,8 +166,10 @@ class Database:
     
     def create_tables(self):
         """ایجاد جداول دیتابیس"""
+        conn = self._get_conn()
+        cursor = conn.cursor()
         
-        self.cursor.execute("""
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS products (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
@@ -178,7 +180,7 @@ class Database:
             )
         """)
         
-        self.cursor.execute("""
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS packs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 product_id INTEGER,
@@ -189,7 +191,7 @@ class Database:
             )
         """)
         
-        self.cursor.execute("""
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 user_id INTEGER PRIMARY KEY,
                 username TEXT,
@@ -203,7 +205,7 @@ class Database:
             )
         """)
         
-        self.cursor.execute("""
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS cart (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER,
@@ -216,7 +218,7 @@ class Database:
             )
         """)
         
-        self.cursor.execute("""
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS orders (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER,
@@ -233,7 +235,7 @@ class Database:
             )
         """)
         
-        self.cursor.execute("""
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS discount_codes (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 code TEXT UNIQUE NOT NULL,
@@ -250,7 +252,7 @@ class Database:
             )
         """)
         
-        self.cursor.execute("""
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS discount_usage (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER,
@@ -262,11 +264,13 @@ class Database:
             )
         """)
         
-        self.conn.commit()
+        conn.commit()
         self._create_indexes()
     
     def _create_indexes(self):
         """ایجاد Index ها برای بهبود سرعت"""
+        conn = self._get_conn()
+        cursor = conn.cursor()
         
         indexes = [
             "CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id)",
@@ -280,15 +284,16 @@ class Database:
         
         for index_sql in indexes:
             try:
-                self.cursor.execute(index_sql)
+                cursor.execute(index_sql)
             except sqlite3.Error as e:
                 logger.warning(f"⚠️ Failed to create index: {e}")
         
-        self.conn.commit()
+        conn.commit()
     
-    # محصولات
+    # ==================== محصولات ====================
     
     def add_product(self, name: str, description: str, photo_id: str):
+        """✅ FIX: استفاده از transaction"""
         try:
             with self.transaction() as cursor:
                 cursor.execute(
@@ -306,36 +311,44 @@ class Database:
             raise
     
     def get_product(self, product_id):
-        self.cursor.execute("SELECT * FROM products WHERE id = ?", (product_id,))
-        return self.cursor.fetchone()
+        """✅ FIX: استفاده از connection pool"""
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM products WHERE id = ?", (product_id,))
+        return cursor.fetchone()
     
     def get_all_products(self):
-        self.cursor.execute("SELECT * FROM products ORDER BY created_at DESC")
-        return self.cursor.fetchall()
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM products ORDER BY created_at DESC")
+        return cursor.fetchall()
     
     def update_product_name(self, product_id: int, name: str):
-        self.cursor.execute("UPDATE products SET name = ? WHERE id = ?", (name, product_id))
-        self.conn.commit()
+        with self.transaction() as cursor:
+            cursor.execute("UPDATE products SET name = ? WHERE id = ?", (name, product_id))
         self._invalidate_cache(f"product:{product_id}")
         self._invalidate_cache("products:")
     
     def update_product_description(self, product_id: int, description: str):
-        self.cursor.execute("UPDATE products SET description = ? WHERE id = ?", (description, product_id))
-        self.conn.commit()
+        with self.transaction() as cursor:
+            cursor.execute("UPDATE products SET description = ? WHERE id = ?", (description, product_id))
         self._invalidate_cache(f"product:{product_id}")
     
     def update_product_photo(self, product_id: int, photo_id: str):
-        self.cursor.execute("UPDATE products SET photo_id = ? WHERE id = ?", (photo_id, product_id))
-        self.conn.commit()
+        with self.transaction() as cursor:
+            cursor.execute("UPDATE products SET photo_id = ? WHERE id = ?", (photo_id, product_id))
         self._invalidate_cache(f"product:{product_id}")
     
     def save_channel_message_id(self, product_id: int, message_id: int) -> bool:
         try:
-            self.cursor.execute("UPDATE products SET channel_message_id = ? WHERE id = ?", (message_id, product_id))
-            self.conn.commit()
+            with self.transaction() as cursor:
+                cursor.execute("UPDATE products SET channel_message_id = ? WHERE id = ?", (message_id, product_id))
             
-            self.cursor.execute("SELECT channel_message_id FROM products WHERE id = ?", (product_id,))
-            saved_id = self.cursor.fetchone()
+            # بررسی ذخیره شدن
+            conn = self._get_conn()
+            cursor = conn.cursor()
+            cursor.execute("SELECT channel_message_id FROM products WHERE id = ?", (product_id,))
+            saved_id = cursor.fetchone()
             
             if saved_id and saved_id[0] == message_id:
                 logger.info(f"✅ channel_message_id={message_id} ذخیره شد برای product={product_id}")
@@ -356,71 +369,92 @@ class Database:
         self._invalidate_cache(f"packs:{product_id}")
         self._invalidate_cache("products:")
     
-    # پک‌ها
+    # ==================== پک‌ها ====================
     
     def add_pack(self, product_id: int, name: str, quantity: int, price: float):
-        self.cursor.execute("INSERT INTO packs (product_id, name, quantity, price) VALUES (?, ?, ?, ?)", (product_id, name, quantity, price))
-        self.conn.commit()
+        with self.transaction() as cursor:
+            cursor.execute("INSERT INTO packs (product_id, name, quantity, price) VALUES (?, ?, ?, ?)", 
+                         (product_id, name, quantity, price))
+            pack_id = cursor.lastrowid
+        
         self._invalidate_cache(f"packs:{product_id}")
-        return self.cursor.lastrowid
+        return pack_id
     
     def get_packs(self, product_id: int):
-        self.cursor.execute("SELECT * FROM packs WHERE product_id = ?", (product_id,))
-        return self.cursor.fetchall()
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM packs WHERE product_id = ?", (product_id,))
+        return cursor.fetchall()
     
     def get_pack(self, pack_id: int):
-        self.cursor.execute("SELECT * FROM packs WHERE id = ?", (pack_id,))
-        return self.cursor.fetchone()
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM packs WHERE id = ?", (pack_id,))
+        return cursor.fetchone()
     
     def update_pack(self, pack_id: int, name: str, quantity: int, price: float):
         pack = self.get_pack(pack_id)
         if pack:
             product_id = pack[1]
-            self.cursor.execute("UPDATE packs SET name = ?, quantity = ?, price = ? WHERE id = ?", (name, quantity, price, pack_id))
-            self.conn.commit()
+            with self.transaction() as cursor:
+                cursor.execute("UPDATE packs SET name = ?, quantity = ?, price = ? WHERE id = ?", 
+                             (name, quantity, price, pack_id))
             self._invalidate_cache(f"packs:{product_id}")
     
     def delete_pack(self, pack_id: int):
         pack = self.get_pack(pack_id)
         if pack:
             product_id = pack[1]
-            self.cursor.execute("DELETE FROM packs WHERE id = ?", (pack_id,))
-            self.conn.commit()
+            with self.transaction() as cursor:
+                cursor.execute("DELETE FROM packs WHERE id = ?", (pack_id,))
             self._invalidate_cache(f"packs:{product_id}")
     
-    # کاربران
+    # ==================== کاربران ====================
     
     def add_user(self, user_id: int, username: Optional[str], first_name: str):
-        self.cursor.execute("INSERT OR IGNORE INTO users (user_id, username, first_name) VALUES (?, ?, ?)", (user_id, username, first_name))
-        self.conn.commit()
+        with self.transaction() as cursor:
+            cursor.execute("INSERT OR IGNORE INTO users (user_id, username, first_name) VALUES (?, ?, ?)", 
+                         (user_id, username, first_name))
     
     def update_user_info(self, user_id: int, phone=None, landline_phone=None, address=None, full_name=None, shop_name=None):
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        
         if phone:
-            self.cursor.execute("UPDATE users SET phone = ? WHERE user_id = ?", (phone, user_id))
+            cursor.execute("UPDATE users SET phone = ? WHERE user_id = ?", (phone, user_id))
         if landline_phone:
-            self.cursor.execute("UPDATE users SET landline_phone = ? WHERE user_id = ?", (landline_phone, user_id))
+            cursor.execute("UPDATE users SET landline_phone = ? WHERE user_id = ?", (landline_phone, user_id))
         if address:
-            self.cursor.execute("UPDATE users SET address = ? WHERE user_id = ?", (address, user_id))
+            cursor.execute("UPDATE users SET address = ? WHERE user_id = ?", (address, user_id))
         if full_name:
-            self.cursor.execute("UPDATE users SET full_name = ? WHERE user_id = ?", (full_name, user_id))
+            cursor.execute("UPDATE users SET full_name = ? WHERE user_id = ?", (full_name, user_id))
         if shop_name:
-            self.cursor.execute("UPDATE users SET shop_name = ? WHERE user_id = ?", (shop_name, user_id))
-        self.conn.commit()
+            cursor.execute("UPDATE users SET shop_name = ? WHERE user_id = ?", (shop_name, user_id))
+        
+        conn.commit()
         self._invalidate_cache(f"user:{user_id}")
     
     def get_user(self, user_id: int):
-        self.cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
-        return self.cursor.fetchone()
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
+        return cursor.fetchone()
     
     def get_all_users(self):
-        self.cursor.execute("SELECT * FROM users")
-        return self.cursor.fetchall()
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM users")
+        return cursor.fetchall()
         
-    # سبد خرید
+    # ==================== سبد خرید ====================
     
     def add_to_cart(self, user_id: int, product_id: int, pack_id: int, quantity: int = 1):
-        self.cursor.execute("SELECT id, quantity FROM cart WHERE user_id = ? AND product_id = ? AND pack_id = ?", (user_id, product_id, pack_id))
-        existing = self.cursor.fetchone()
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT id, quantity FROM cart WHERE user_id = ? AND product_id = ? AND pack_id = ?", 
+                      (user_id, product_id, pack_id))
+        existing = cursor.fetchone()
         
         pack = self.get_pack(pack_id)
         if not pack:
@@ -431,151 +465,181 @@ class Database:
         
         if existing:
             new_quantity = existing[1] + actual_quantity
-            self.cursor.execute("UPDATE cart SET quantity = ? WHERE id = ?", (new_quantity, existing[0]))
+            cursor.execute("UPDATE cart SET quantity = ? WHERE id = ?", (new_quantity, existing[0]))
         else:
-            self.cursor.execute("INSERT INTO cart (user_id, product_id, pack_id, quantity) VALUES (?, ?, ?, ?)", (user_id, product_id, pack_id, actual_quantity))
-        self.conn.commit()
+            cursor.execute("INSERT INTO cart (user_id, product_id, pack_id, quantity) VALUES (?, ?, ?, ?)", 
+                         (user_id, product_id, pack_id, actual_quantity))
+        
+        conn.commit()
         self._invalidate_cache(f"cart:{user_id}")
     
     def get_cart(self, user_id: int):
         self.clean_invalid_cart_items(user_id)
-    
-        self.cursor.execute("""
+        
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        cursor.execute("""
             SELECT c.id, p.name, pk.name, pk.quantity, pk.price, c.quantity
             FROM cart c
             JOIN products p ON c.product_id = p.id
             JOIN packs pk ON c.pack_id = pk.id
             WHERE c.user_id = ?
         """, (user_id,))
-        return self.cursor.fetchall()
+        return cursor.fetchall()
     
     def clear_cart(self, user_id: int):
-        self.cursor.execute("DELETE FROM cart WHERE user_id = ?", (user_id,))
-        self.conn.commit()
+        with self.transaction() as cursor:
+            cursor.execute("DELETE FROM cart WHERE user_id = ?", (user_id,))
         self._invalidate_cache(f"cart:{user_id}")
     
     def remove_from_cart(self, cart_id: int):
-        self.cursor.execute("SELECT user_id FROM cart WHERE id = ?", (cart_id,))
-        result = self.cursor.fetchone()
+        conn = self._get_conn()
+        cursor = conn.cursor()
         
-        self.cursor.execute("DELETE FROM cart WHERE id = ?", (cart_id,))
-        self.conn.commit()
+        cursor.execute("SELECT user_id FROM cart WHERE id = ?", (cart_id,))
+        result = cursor.fetchone()
+        
+        cursor.execute("DELETE FROM cart WHERE id = ?", (cart_id,))
+        conn.commit()
         
         if result:
             self._invalidate_cache(f"cart:{result[0]}")
     
-    # سفارشات
+    # ==================== سفارشات ====================
     
-    def create_order(self, user_id: int, items: List[dict], total_price: float, discount_amount: float = 0, final_price: Optional[float] = None, discount_code: Optional[str] = None):
+    def create_order(self, user_id: int, items: List[dict], total_price: float, 
+                    discount_amount: float = 0, final_price: Optional[float] = None, 
+                    discount_code: Optional[str] = None):
         items_json = json.dumps(items, ensure_ascii=False)
         if final_price is None:
             final_price = total_price - discount_amount
         
         with self.transaction() as cursor:
-            cursor.execute("INSERT INTO orders (user_id, items, total_price, discount_amount, final_price, discount_code) VALUES (?, ?, ?, ?, ?, ?)", (user_id, items_json, total_price, discount_amount, final_price, discount_code))
+            cursor.execute("INSERT INTO orders (user_id, items, total_price, discount_amount, final_price, discount_code) VALUES (?, ?, ?, ?, ?, ?)", 
+                         (user_id, items_json, total_price, discount_amount, final_price, discount_code))
             order_id = cursor.lastrowid
             
         self._invalidate_cache("stats:")
         return order_id
     
     def get_order(self, order_id: int):
-        self.cursor.execute("SELECT * FROM orders WHERE id = ?", (order_id,))
-        return self.cursor.fetchone()
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM orders WHERE id = ?", (order_id,))
+        return cursor.fetchone()
     
     def update_order_status(self, order_id: int, status: str):
-        self.cursor.execute("UPDATE orders SET status = ? WHERE id = ?", (status, order_id))
-        self.conn.commit()
+        with self.transaction() as cursor:
+            cursor.execute("UPDATE orders SET status = ? WHERE id = ?", (status, order_id))
         self._invalidate_cache("stats:")
     
     def add_receipt(self, order_id: int, photo_id: str):
-        self.cursor.execute("UPDATE orders SET receipt_photo = ?, status = 'receipt_sent' WHERE id = ?", (photo_id, order_id))
-        self.conn.commit()
+        with self.transaction() as cursor:
+            cursor.execute("UPDATE orders SET receipt_photo = ?, status = 'receipt_sent' WHERE id = ?", 
+                         (photo_id, order_id))
     
     def update_shipping_method(self, order_id: int, method: str):
-        self.cursor.execute("UPDATE orders SET shipping_method = ? WHERE id = ?", (method, order_id))
-        self.conn.commit()
+        with self.transaction() as cursor:
+            cursor.execute("UPDATE orders SET shipping_method = ? WHERE id = ?", (method, order_id))
     
     def get_pending_orders(self):
-        self.cursor.execute("SELECT * FROM orders WHERE status = 'pending' ORDER BY created_at DESC")
-        return self.cursor.fetchall()
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM orders WHERE status = 'pending' ORDER BY created_at DESC")
+        return cursor.fetchall()
     
     def get_waiting_payment_orders(self):
-        self.cursor.execute("SELECT * FROM orders WHERE status = 'waiting_payment' ORDER BY created_at DESC")
-        return self.cursor.fetchall()
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM orders WHERE status = 'waiting_payment' ORDER BY created_at DESC")
+        return cursor.fetchall()
     
     def get_user_orders(self, user_id: int):
-        self.cursor.execute("SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC", (user_id,))
-        return self.cursor.fetchall()
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC", (user_id,))
+        return cursor.fetchall()
     
-    # تخفیف
+    # ==================== تخفیف ====================
     
-    def create_discount(self, code: str, type: str, value: float, min_purchase: float = 0, max_discount: Optional[float] = None, usage_limit: Optional[int] = None, start_date: Optional[str] = None, end_date: Optional[str] = None):
-        self.cursor.execute("INSERT INTO discount_codes (code, type, value, min_purchase, max_discount, usage_limit, start_date, end_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (code, type, value, min_purchase, max_discount, usage_limit, start_date, end_date))
-        self.conn.commit()
-        return self.cursor.lastrowid
+    def create_discount(self, code: str, type: str, value: float, min_purchase: float = 0, 
+                       max_discount: Optional[float] = None, usage_limit: Optional[int] = None, 
+                       start_date: Optional[str] = None, end_date: Optional[str] = None):
+        with self.transaction() as cursor:
+            cursor.execute("INSERT INTO discount_codes (code, type, value, min_purchase, max_discount, usage_limit, start_date, end_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", 
+                         (code, type, value, min_purchase, max_discount, usage_limit, start_date, end_date))
+            discount_id = cursor.lastrowid
+        return discount_id
     
     def get_discount(self, code: str):
-        self.cursor.execute("SELECT * FROM discount_codes WHERE code = ? AND is_active = 1", (code,))
-        return self.cursor.fetchone()
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM discount_codes WHERE code = ? AND is_active = 1", (code,))
+        return cursor.fetchone()
     
     def get_all_discounts(self):
-        self.cursor.execute("SELECT * FROM discount_codes ORDER BY created_at DESC")
-        return self.cursor.fetchall()
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM discount_codes ORDER BY created_at DESC")
+        return cursor.fetchall()
     
     def use_discount(self, user_id: int, discount_code: str, order_id: int):
         with self.transaction() as cursor:
-            cursor.execute("INSERT INTO discount_usage (user_id, discount_code, order_id) VALUES (?, ?, ?)", (user_id, discount_code, order_id))
+            cursor.execute("INSERT INTO discount_usage (user_id, discount_code, order_id) VALUES (?, ?, ?)", 
+                         (user_id, discount_code, order_id))
             cursor.execute("UPDATE discount_codes SET used_count = used_count + 1 WHERE code = ?", (discount_code,))
     
     def toggle_discount(self, discount_id: int):
-        self.cursor.execute("UPDATE discount_codes SET is_active = 1 - is_active WHERE id = ?", (discount_id,))
-        self.conn.commit()
+        with self.transaction() as cursor:
+            cursor.execute("UPDATE discount_codes SET is_active = 1 - is_active WHERE id = ?", (discount_id,))
     
     def delete_discount(self, discount_id: int):
-        self.cursor.execute("DELETE FROM discount_codes WHERE id = ?", (discount_id,))
-        self.conn.commit()
+        with self.transaction() as cursor:
+            cursor.execute("DELETE FROM discount_codes WHERE id = ?", (discount_id,))
     
-    # آمار
+    # ==================== آمار ====================
     
     def get_statistics(self):
+        conn = self._get_conn()
+        cursor = conn.cursor()
         stats = {}
         
-        self.cursor.execute("SELECT COUNT(*) FROM orders")
-        stats['total_orders'] = self.cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM orders")
+        stats['total_orders'] = cursor.fetchone()[0]
         
-        self.cursor.execute("SELECT COUNT(*) FROM orders WHERE DATE(created_at) = DATE('now')")
-        stats['today_orders'] = self.cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM orders WHERE DATE(created_at) = DATE('now')")
+        stats['today_orders'] = cursor.fetchone()[0]
         
-        self.cursor.execute("SELECT COUNT(*) FROM orders WHERE DATE(created_at) >= DATE('now', '-7 days')")
-        stats['week_orders'] = self.cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM orders WHERE DATE(created_at) >= DATE('now', '-7 days')")
+        stats['week_orders'] = cursor.fetchone()[0]
         
-        self.cursor.execute("SELECT SUM(final_price) FROM orders WHERE status IN ('confirmed', 'payment_confirmed')")
-        total_income = self.cursor.fetchone()[0]
+        cursor.execute("SELECT SUM(final_price) FROM orders WHERE status IN ('confirmed', 'payment_confirmed')")
+        total_income = cursor.fetchone()[0]
         stats['total_income'] = total_income if total_income else 0
         
-        self.cursor.execute("SELECT SUM(final_price) FROM orders WHERE status IN ('confirmed', 'payment_confirmed') AND DATE(created_at) = DATE('now')")
-        today_income = self.cursor.fetchone()[0]
+        cursor.execute("SELECT SUM(final_price) FROM orders WHERE status IN ('confirmed', 'payment_confirmed') AND DATE(created_at) = DATE('now')")
+        today_income = cursor.fetchone()[0]
         stats['today_income'] = today_income if today_income else 0
         
-        self.cursor.execute("SELECT SUM(final_price) FROM orders WHERE status IN ('confirmed', 'payment_confirmed') AND DATE(created_at) >= DATE('now', '-7 days')")
-        week_income = self.cursor.fetchone()[0]
+        cursor.execute("SELECT SUM(final_price) FROM orders WHERE status IN ('confirmed', 'payment_confirmed') AND DATE(created_at) >= DATE('now', '-7 days')")
+        week_income = cursor.fetchone()[0]
         stats['week_income'] = week_income if week_income else 0
         
-        self.cursor.execute("SELECT COUNT(*) FROM users")
-        stats['total_users'] = self.cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM users")
+        stats['total_users'] = cursor.fetchone()[0]
         
-        self.cursor.execute("SELECT COUNT(*) FROM users WHERE DATE(created_at) >= DATE('now', '-7 days')")
-        stats['week_new_users'] = self.cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM users WHERE DATE(created_at) >= DATE('now', '-7 days')")
+        stats['week_new_users'] = cursor.fetchone()[0]
         
-        self.cursor.execute("SELECT COUNT(*) FROM products")
-        stats['total_products'] = self.cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM products")
+        stats['total_products'] = cursor.fetchone()[0]
         
-        self.cursor.execute("SELECT COUNT(*) FROM orders WHERE status = 'pending'")
-        stats['pending_orders'] = self.cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM orders WHERE status = 'pending'")
+        stats['pending_orders'] = cursor.fetchone()[0]
         
-        self.cursor.execute("""SELECT items FROM orders WHERE status IN ('confirmed', 'payment_confirmed')""")
+        cursor.execute("""SELECT items FROM orders WHERE status IN ('confirmed', 'payment_confirmed')""")
         product_counts = {}
-        for row in self.cursor.fetchall():
+        for row in cursor.fetchall():
             items = json.loads(row[0])
             for item in items:
                 product_name = item.get('product', '')
@@ -588,10 +652,18 @@ class Database:
         
         return stats
     
+    @property
+    def cursor(self):
+        """✅ FIX: برای backward compatibility - به جای self.cursor مستقیم از pool استفاده می‌کنیم"""
+        return self._get_conn().cursor()
+    
+    @property  
+    def conn(self):
+        """✅ FIX: برای backward compatibility"""
+        return self._get_conn()
+    
     def close(self):
         try:
-            if hasattr(self, 'conn') and self.conn:
-                self.conn.close()
             if hasattr(self, 'pool') and self.pool:
                 self.pool.cleanup_all()
             logger.info("✅ Database connections closed successfully")
