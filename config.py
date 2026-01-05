@@ -1,8 +1,10 @@
 """
 تنظیمات اصلی ربات
 🔒 امن شده با Environment Variables
+✅ FIX باگ 8: Config Validation بدون crash - فقط warning میده
 """
 import os
+import warnings
 from dotenv import load_dotenv
 
 # بارگذاری متغیرهای محیطی
@@ -116,23 +118,29 @@ def validate_config():
             print(f"  {error}")
         print("="*50 + "\n")
         
+        # ✅ FIX باگ 8: فقط warning بده، crash نکن
         if any("❌" in e for e in errors):
-            raise ValueError("تنظیمات اشتباه است!")
+            error_msg = "تنظیمات اشتباه است!"
+            warnings.warn(f"⚠️ Configuration issue: {error_msg}")
+            # بجای raise، فقط warning میدیم
+        return False
     else:
         print("✅ تمام تنظیمات معتبر هستند")
+        return True
 
 
-# اجرای اعتبارسنجی در هنگام import
+# ✅ FIX باگ 8: اجرای اعتبارسنجی با warning به جای crash
 if __name__ != "__main__":
     try:
         validate_config()
     except ValueError as e:
-        print(f"\n🚨 خطای تنظیمات: {e}\n")
+        # ✅ FIX: فقط warning، crash نمی‌کنیم
+        warnings.warn(f"⚠️ Configuration issue: {e}")
+        print(f"\n⚠️ هشدار تنظیمات: {e}\n")
         print("💡 راهنما:")
         print("  1. فایل .env را در روت پروژه ایجاد کنید")
         print("  2. از .env.example به عنوان الگو استفاده کنید")
         print("  3. تمام متغیرهای الزامی را تنظیم کنید\n")
-        raise
 
 
 # ==================== Debug Mode ====================
