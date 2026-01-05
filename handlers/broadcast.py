@@ -1,13 +1,13 @@
 """
 سیستم پیام‌رسانی همگانی
-🆕 اصلاح شده: حالا درست کار می‌کنه!
-✅ FIX: ترتیب صحیح log_broadcast
+✅ اصلاح شده: متغیرها قبل از loop تعریف می‌شن
+✅ Error handling بهتر
 """
 import asyncio
 from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler
 from config import ADMIN_ID
-from logger import log_broadcast
+from logger import log_broadcast, log_error
 from states import BROADCAST_MESSAGE
 from keyboards import cancel_keyboard, admin_main_keyboard, broadcast_confirm_keyboard
 
@@ -17,7 +17,7 @@ async def broadcast_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return ConversationHandler.END
     
-    # 🆕 پاک کردن پیام قبلی اگه وجود داشته باشه
+    # پاک کردن پیام قبلی
     context.user_data.pop('broadcast_type', None)
     context.user_data.pop('broadcast_content', None)
     context.user_data.pop('broadcast_caption', None)
@@ -89,7 +89,16 @@ async def confirm_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     
     db = context.bot_data['db']
-    users = db.get_all_users()
+    
+    try:
+        users = db.get_all_users()
+    except Exception as e:
+        log_error("Broadcast", f"خطا در دریافت لیست کاربران: {e}")
+        await query.edit_message_text(
+            "❌ خطا در دریافت لیست کاربران!",
+            reply_markup=admin_main_keyboard()
+        )
+        return
     
     broadcast_type = context.user_data.get('broadcast_type')
     broadcast_content = context.user_data.get('broadcast_content')
@@ -104,7 +113,7 @@ async def confirm_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"لطفاً صبر کنید..."
     )
     
-    # ✅ FIX: اول متغیرها رو تعریف کن
+    # ✅ FIX: تعریف متغیرها قبل از loop
     success_count = 0
     failed_count = 0
     blocked_count = 0
@@ -142,15 +151,16 @@ async def confirm_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 blocked_count += 1
             else:
                 failed_count += 1
+                log_error("Broadcast", f"خطا در ارسال به {user_id}: {e}")
         
         # تاخیر کوچک برای جلوگیری از محدودیت تلگرام
         await asyncio.sleep(0.05)
     
-    # ✅ FIX: حالا log_broadcast بعد از تعریف متغیرها فراخوانی میشه
+    # لاگ broadcast
     log_broadcast(
         update.effective_user.id,
         success_count,
-        failed_count,
+        failed_count + blocked_count,
         len(users)
     )
     
@@ -159,7 +169,11 @@ async def confirm_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     report += f"✅ موفق: {success_count}\n"
     report += f"🚫 بلاک شده/غیرفعال: {blocked_count}\n"
     report += f"❌ خطا: {failed_count}\n"
-    report += f"📊 کل: {len(users)}"
+    report += f"📊 کل: {len(users)}\n\n"
+    
+    # محاسبه درصد موفقیت
+    success_rate = (success_count / len(users) * 100) if len(users) > 0 else 0
+    report += f"📈 نرخ موفقیت: {success_rate:.1f}%"
     
     await query.message.reply_text(
         report,
