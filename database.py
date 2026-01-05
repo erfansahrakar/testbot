@@ -1,7 +1,7 @@
 """
 مدیریت دیتابیس با SQLite
-🔒 نسخه اصلاح شده با Thread Safety کامل
-✅ رفع باگ Connection Pool
+✅ بروزرسانی شده با پشتیبانی Cache
+✅ Thread Safety کامل
 ✅ Transaction Management بهبود یافته
 ✅ Graceful Shutdown
 """
@@ -28,7 +28,6 @@ class DatabaseConnectionPool:
         self._lock = threading.Lock()
         self._active_connections = []
         
-        # ثبت cleanup در خروج
         atexit.register(self.cleanup_all)
         
     def get_connection(self) -> sqlite3.Connection:
@@ -43,7 +42,7 @@ class DatabaseConnectionPool:
                 )
                 conn.row_factory = sqlite3.Row
                 conn.execute("PRAGMA foreign_keys = ON")
-                conn.execute("PRAGMA journal_mode = WAL")  # بهبود performance
+                conn.execute("PRAGMA journal_mode = WAL")
                 
                 self._local.connection = conn
                 
@@ -98,11 +97,12 @@ class DatabaseError(Exception):
 class Database:
     """کلاس مدیریت دیتابیس با امنیت بالا"""
 
-    def __init__(self):
-        """✅ اصلاح شده: فقط از Pool استفاده می‌کنه"""
+    def __init__(self, cache_manager=None):
+        """بروزرسانی شده با پشتیبانی Cache"""
         self.pool = DatabaseConnectionPool(DATABASE_NAME)
         self.conn = self.pool.get_connection()
         self.cursor = self.conn.cursor()
+        self.cache_manager = cache_manager
         self.create_tables()
         
         logger.info("✅ Database initialized successfully")
@@ -135,11 +135,13 @@ class Database:
             logger.error(f"❌ Transaction failed: {e}")
             raise DatabaseError(f"خطای تراکنش: {e}")
     
+    def _invalidate_cache(self, pattern: str):
+        """حذف کش مرتبط"""
+        if self.cache_manager:
+            self.cache_manager.invalidate_pattern(pattern)
+    
     def clean_invalid_cart_items(self, user_id: int):
-        """
-        حذف آیتم‌های نامعتبر از سبد
-        (محصولات یا پک‌هایی که حذف شدن)
-        """
+        """حذف آیتم‌های نامعتبر از سبد"""
         try:
             self.cursor.execute("""
                 DELETE FROM cart 
@@ -154,6 +156,7 @@ class Database:
             deleted_count = self.cursor.rowcount
             if deleted_count > 0:
                 logger.info(f"🧹 {deleted_count} آیتم نامعتبر از سبد کاربر {user_id} حذف شد")
+                self._invalidate_cache(f"cart:{user_id}")
         
             return deleted_count
         
@@ -164,7 +167,6 @@ class Database:
     def create_tables(self):
         """ایجاد جداول دیتابیس"""
         
-        # جدول محصولات
         self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS products (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -176,7 +178,6 @@ class Database:
             )
         """)
         
-        # جدول پک‌ها
         self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS packs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -188,7 +189,6 @@ class Database:
             )
         """)
         
-        # جدول کاربران
         self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 user_id INTEGER PRIMARY KEY,
@@ -203,7 +203,6 @@ class Database:
             )
         """)
         
-        # جدول سبد خرید
         self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS cart (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -217,7 +216,6 @@ class Database:
             )
         """)
         
-        # جدول سفارشات
         self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS orders (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -235,7 +233,6 @@ class Database:
             )
         """)
         
-        # جدول کد تخفیف
         self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS discount_codes (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -253,7 +250,6 @@ class Database:
             )
         """)
         
-        # جدول استفاده از کد تخفیف
         self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS discount_usage (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -290,7 +286,7 @@ class Database:
         
         self.conn.commit()
     
-    # ==================== محصولات ====================
+    # محصولات
     
     def add_product(self, name: str, description: str, photo_id: str):
         try:
@@ -302,6 +298,7 @@ class Database:
                 product_id = cursor.lastrowid
                 
                 log_database_operation("INSERT", "products", product_id)
+                self._invalidate_cache("products:")
                 return product_id
 
         except Exception as e:
@@ -309,46 +306,32 @@ class Database:
             raise
     
     def get_product(self, product_id):
-        """دریافت اطلاعات یک محصول"""
         self.cursor.execute("SELECT * FROM products WHERE id = ?", (product_id,))
         return self.cursor.fetchone()
     
     def get_all_products(self):
-        """دریافت تمام محصولات"""
         self.cursor.execute("SELECT * FROM products ORDER BY created_at DESC")
         return self.cursor.fetchall()
     
     def update_product_name(self, product_id: int, name: str):
-        """ویرایش نام محصول"""
-        self.cursor.execute(
-            "UPDATE products SET name = ? WHERE id = ?",
-            (name, product_id)
-        )
+        self.cursor.execute("UPDATE products SET name = ? WHERE id = ?", (name, product_id))
         self.conn.commit()
+        self._invalidate_cache(f"product:{product_id}")
+        self._invalidate_cache("products:")
     
     def update_product_description(self, product_id: int, description: str):
-        """ویرایش توضیحات محصول"""
-        self.cursor.execute(
-            "UPDATE products SET description = ? WHERE id = ?",
-            (description, product_id)
-        )
+        self.cursor.execute("UPDATE products SET description = ? WHERE id = ?", (description, product_id))
         self.conn.commit()
+        self._invalidate_cache(f"product:{product_id}")
     
     def update_product_photo(self, product_id: int, photo_id: str):
-        """ویرایش عکس محصول"""
-        self.cursor.execute(
-            "UPDATE products SET photo_id = ? WHERE id = ?",
-            (photo_id, product_id)
-        )
+        self.cursor.execute("UPDATE products SET photo_id = ? WHERE id = ?", (photo_id, product_id))
         self.conn.commit()
+        self._invalidate_cache(f"product:{product_id}")
     
     def save_channel_message_id(self, product_id: int, message_id: int) -> bool:
-        """ذخیره شناسه پیام کانال"""
         try:
-            self.cursor.execute(
-                "UPDATE products SET channel_message_id = ? WHERE id = ?",
-                (message_id, product_id)
-            )
+            self.cursor.execute("UPDATE products SET channel_message_id = ? WHERE id = ?", (message_id, product_id))
             self.conn.commit()
             
             self.cursor.execute("SELECT channel_message_id FROM products WHERE id = ?", (product_id,))
@@ -365,57 +348,53 @@ class Database:
             return False
     
     def delete_product(self, product_id: int):
-        """حذف محصول"""
         with self.transaction() as cursor:
             cursor.execute("DELETE FROM products WHERE id = ?", (product_id,))
             cursor.execute("DELETE FROM packs WHERE product_id = ?", (product_id,))
+        
+        self._invalidate_cache(f"product:{product_id}")
+        self._invalidate_cache(f"packs:{product_id}")
+        self._invalidate_cache("products:")
     
-    # ==================== پک‌ها ====================
+    # پک‌ها
     
     def add_pack(self, product_id: int, name: str, quantity: int, price: float):
-        """افزودن پک به محصول"""
-        self.cursor.execute(
-            "INSERT INTO packs (product_id, name, quantity, price) VALUES (?, ?, ?, ?)",
-            (product_id, name, quantity, price)
-        )
+        self.cursor.execute("INSERT INTO packs (product_id, name, quantity, price) VALUES (?, ?, ?, ?)", (product_id, name, quantity, price))
         self.conn.commit()
+        self._invalidate_cache(f"packs:{product_id}")
         return self.cursor.lastrowid
     
     def get_packs(self, product_id: int):
-        """دریافت پک‌های یک محصول"""
         self.cursor.execute("SELECT * FROM packs WHERE product_id = ?", (product_id,))
         return self.cursor.fetchall()
     
     def get_pack(self, pack_id: int):
-        """دریافت اطلاعات یک پک"""
         self.cursor.execute("SELECT * FROM packs WHERE id = ?", (pack_id,))
         return self.cursor.fetchone()
     
     def update_pack(self, pack_id: int, name: str, quantity: int, price: float):
-        """ویرایش پک"""
-        self.cursor.execute(
-            "UPDATE packs SET name = ?, quantity = ?, price = ? WHERE id = ?",
-            (name, quantity, price, pack_id)
-        )
-        self.conn.commit()
+        pack = self.get_pack(pack_id)
+        if pack:
+            product_id = pack[1]
+            self.cursor.execute("UPDATE packs SET name = ?, quantity = ?, price = ? WHERE id = ?", (name, quantity, price, pack_id))
+            self.conn.commit()
+            self._invalidate_cache(f"packs:{product_id}")
     
     def delete_pack(self, pack_id: int):
-        """حذف پک"""
-        self.cursor.execute("DELETE FROM packs WHERE id = ?", (pack_id,))
-        self.conn.commit()
+        pack = self.get_pack(pack_id)
+        if pack:
+            product_id = pack[1]
+            self.cursor.execute("DELETE FROM packs WHERE id = ?", (pack_id,))
+            self.conn.commit()
+            self._invalidate_cache(f"packs:{product_id}")
     
-    # ==================== کاربران ====================
+    # کاربران
     
     def add_user(self, user_id: int, username: Optional[str], first_name: str):
-        """افزودن کاربر جدید"""
-        self.cursor.execute(
-            "INSERT OR IGNORE INTO users (user_id, username, first_name) VALUES (?, ?, ?)",
-            (user_id, username, first_name)
-        )
+        self.cursor.execute("INSERT OR IGNORE INTO users (user_id, username, first_name) VALUES (?, ?, ?)", (user_id, username, first_name))
         self.conn.commit()
     
     def update_user_info(self, user_id: int, phone=None, landline_phone=None, address=None, full_name=None, shop_name=None):
-        """بروزرسانی اطلاعات کاربر"""
         if phone:
             self.cursor.execute("UPDATE users SET phone = ? WHERE user_id = ?", (phone, user_id))
         if landline_phone:
@@ -427,25 +406,20 @@ class Database:
         if shop_name:
             self.cursor.execute("UPDATE users SET shop_name = ? WHERE user_id = ?", (shop_name, user_id))
         self.conn.commit()
+        self._invalidate_cache(f"user:{user_id}")
     
     def get_user(self, user_id: int):
-        """دریافت اطلاعات کاربر"""
         self.cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
         return self.cursor.fetchone()
     
     def get_all_users(self):
-        """دریافت همه کاربران"""
         self.cursor.execute("SELECT * FROM users")
         return self.cursor.fetchall()
         
-    # ==================== سبد خرید ====================
+    # سبد خرید
     
     def add_to_cart(self, user_id: int, product_id: int, pack_id: int, quantity: int = 1):
-        """افزودن به سبد خرید"""
-        self.cursor.execute(
-            "SELECT id, quantity FROM cart WHERE user_id = ? AND product_id = ? AND pack_id = ?",
-            (user_id, product_id, pack_id)
-        )
+        self.cursor.execute("SELECT id, quantity FROM cart WHERE user_id = ? AND product_id = ? AND pack_id = ?", (user_id, product_id, pack_id))
         existing = self.cursor.fetchone()
         
         pack = self.get_pack(pack_id)
@@ -457,19 +431,13 @@ class Database:
         
         if existing:
             new_quantity = existing[1] + actual_quantity
-            self.cursor.execute(
-                "UPDATE cart SET quantity = ? WHERE id = ?",
-                (new_quantity, existing[0])
-            )
+            self.cursor.execute("UPDATE cart SET quantity = ? WHERE id = ?", (new_quantity, existing[0]))
         else:
-            self.cursor.execute(
-                "INSERT INTO cart (user_id, product_id, pack_id, quantity) VALUES (?, ?, ?, ?)",
-                (user_id, product_id, pack_id, actual_quantity)
-            )
+            self.cursor.execute("INSERT INTO cart (user_id, product_id, pack_id, quantity) VALUES (?, ?, ?, ?)", (user_id, product_id, pack_id, actual_quantity))
         self.conn.commit()
+        self._invalidate_cache(f"cart:{user_id}")
     
     def get_cart(self, user_id: int):
-        """دریافت سبد خرید - با پاکسازی خودکار"""
         self.clean_invalid_cart_items(user_id)
     
         self.cursor.execute("""
@@ -482,128 +450,94 @@ class Database:
         return self.cursor.fetchall()
     
     def clear_cart(self, user_id: int):
-        """خالی کردن سبد خرید"""
         self.cursor.execute("DELETE FROM cart WHERE user_id = ?", (user_id,))
         self.conn.commit()
+        self._invalidate_cache(f"cart:{user_id}")
     
     def remove_from_cart(self, cart_id: int):
-        """حذف آیتم از سبد"""
+        self.cursor.execute("SELECT user_id FROM cart WHERE id = ?", (cart_id,))
+        result = self.cursor.fetchone()
+        
         self.cursor.execute("DELETE FROM cart WHERE id = ?", (cart_id,))
         self.conn.commit()
+        
+        if result:
+            self._invalidate_cache(f"cart:{result[0]}")
     
-    # ==================== سفارشات ====================
+    # سفارشات
     
-    def create_order(self, user_id: int, items: List[dict], total_price: float, 
-                    discount_amount: float = 0, final_price: Optional[float] = None, 
-                    discount_code: Optional[str] = None):
-        """ایجاد سفارش جدید"""
+    def create_order(self, user_id: int, items: List[dict], total_price: float, discount_amount: float = 0, final_price: Optional[float] = None, discount_code: Optional[str] = None):
         items_json = json.dumps(items, ensure_ascii=False)
         if final_price is None:
             final_price = total_price - discount_amount
         
         with self.transaction() as cursor:
-            cursor.execute(
-                "INSERT INTO orders (user_id, items, total_price, discount_amount, final_price, discount_code) VALUES (?, ?, ?, ?, ?, ?)",
-                (user_id, items_json, total_price, discount_amount, final_price, discount_code)
-            )
-            return cursor.lastrowid
+            cursor.execute("INSERT INTO orders (user_id, items, total_price, discount_amount, final_price, discount_code) VALUES (?, ?, ?, ?, ?, ?)", (user_id, items_json, total_price, discount_amount, final_price, discount_code))
+            order_id = cursor.lastrowid
+            
+        self._invalidate_cache("stats:")
+        return order_id
     
     def get_order(self, order_id: int):
-        """دریافت اطلاعات سفارش"""
         self.cursor.execute("SELECT * FROM orders WHERE id = ?", (order_id,))
         return self.cursor.fetchone()
     
     def update_order_status(self, order_id: int, status: str):
-        """بروزرسانی وضعیت سفارش"""
-        self.cursor.execute(
-            "UPDATE orders SET status = ? WHERE id = ?",
-            (status, order_id)
-        )
+        self.cursor.execute("UPDATE orders SET status = ? WHERE id = ?", (status, order_id))
         self.conn.commit()
+        self._invalidate_cache("stats:")
     
     def add_receipt(self, order_id: int, photo_id: str):
-        """افزودن رسید به سفارش"""
-        self.cursor.execute(
-            "UPDATE orders SET receipt_photo = ?, status = 'receipt_sent' WHERE id = ?",
-            (photo_id, order_id)
-        )
+        self.cursor.execute("UPDATE orders SET receipt_photo = ?, status = 'receipt_sent' WHERE id = ?", (photo_id, order_id))
         self.conn.commit()
     
     def update_shipping_method(self, order_id: int, method: str):
-        """بروزرسانی نحوه ارسال"""
-        self.cursor.execute(
-            "UPDATE orders SET shipping_method = ? WHERE id = ?",
-            (method, order_id)
-        )
+        self.cursor.execute("UPDATE orders SET shipping_method = ? WHERE id = ?", (method, order_id))
         self.conn.commit()
     
     def get_pending_orders(self):
-        """دریافت سفارشات در انتظار تایید"""
         self.cursor.execute("SELECT * FROM orders WHERE status = 'pending' ORDER BY created_at DESC")
         return self.cursor.fetchall()
     
     def get_waiting_payment_orders(self):
-        """دریافت سفارشات در انتظار پرداخت"""
         self.cursor.execute("SELECT * FROM orders WHERE status = 'waiting_payment' ORDER BY created_at DESC")
         return self.cursor.fetchall()
     
     def get_user_orders(self, user_id: int):
-        """دریافت سفارشات یک کاربر"""
         self.cursor.execute("SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC", (user_id,))
         return self.cursor.fetchall()
     
-    # ==================== تخفیف ====================
+    # تخفیف
     
-    def create_discount(self, code: str, type: str, value: float, min_purchase: float = 0, 
-                       max_discount: Optional[float] = None, usage_limit: Optional[int] = None, 
-                       start_date: Optional[str] = None, end_date: Optional[str] = None):
-        """ایجاد کد تخفیف"""
-        self.cursor.execute(
-            "INSERT INTO discount_codes (code, type, value, min_purchase, max_discount, usage_limit, start_date, end_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (code, type, value, min_purchase, max_discount, usage_limit, start_date, end_date)
-        )
+    def create_discount(self, code: str, type: str, value: float, min_purchase: float = 0, max_discount: Optional[float] = None, usage_limit: Optional[int] = None, start_date: Optional[str] = None, end_date: Optional[str] = None):
+        self.cursor.execute("INSERT INTO discount_codes (code, type, value, min_purchase, max_discount, usage_limit, start_date, end_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (code, type, value, min_purchase, max_discount, usage_limit, start_date, end_date))
         self.conn.commit()
         return self.cursor.lastrowid
     
     def get_discount(self, code: str):
-        """دریافت اطلاعات کد تخفیف"""
         self.cursor.execute("SELECT * FROM discount_codes WHERE code = ? AND is_active = 1", (code,))
         return self.cursor.fetchone()
     
     def get_all_discounts(self):
-        """دریافت همه کدهای تخفیف"""
         self.cursor.execute("SELECT * FROM discount_codes ORDER BY created_at DESC")
         return self.cursor.fetchall()
     
     def use_discount(self, user_id: int, discount_code: str, order_id: int):
-        """ثبت استفاده از کد تخفیف"""
         with self.transaction() as cursor:
-            cursor.execute(
-                "INSERT INTO discount_usage (user_id, discount_code, order_id) VALUES (?, ?, ?)",
-                (user_id, discount_code, order_id)
-            )
-            cursor.execute(
-                "UPDATE discount_codes SET used_count = used_count + 1 WHERE code = ?",
-                (discount_code,)
-            )
+            cursor.execute("INSERT INTO discount_usage (user_id, discount_code, order_id) VALUES (?, ?, ?)", (user_id, discount_code, order_id))
+            cursor.execute("UPDATE discount_codes SET used_count = used_count + 1 WHERE code = ?", (discount_code,))
     
     def toggle_discount(self, discount_id: int):
-        """فعال/غیرفعال کردن کد تخفیف"""
-        self.cursor.execute(
-            "UPDATE discount_codes SET is_active = 1 - is_active WHERE id = ?",
-            (discount_id,)
-        )
+        self.cursor.execute("UPDATE discount_codes SET is_active = 1 - is_active WHERE id = ?", (discount_id,))
         self.conn.commit()
     
     def delete_discount(self, discount_id: int):
-        """حذف کد تخفیف"""
         self.cursor.execute("DELETE FROM discount_codes WHERE id = ?", (discount_id,))
         self.conn.commit()
     
-    # ==================== آمار ====================
+    # آمار
     
     def get_statistics(self):
-        """دریافت آمار کلی"""
         stats = {}
         
         self.cursor.execute("SELECT COUNT(*) FROM orders")
@@ -639,10 +573,7 @@ class Database:
         self.cursor.execute("SELECT COUNT(*) FROM orders WHERE status = 'pending'")
         stats['pending_orders'] = self.cursor.fetchone()[0]
         
-        self.cursor.execute("""
-            SELECT items FROM orders 
-            WHERE status IN ('confirmed', 'payment_confirmed')
-        """)
+        self.cursor.execute("""SELECT items FROM orders WHERE status IN ('confirmed', 'payment_confirmed')""")
         product_counts = {}
         for row in self.cursor.fetchall():
             items = json.loads(row[0])
@@ -658,7 +589,6 @@ class Database:
         return stats
     
     def close(self):
-        """بستن اتصال"""
         try:
             if hasattr(self, 'conn') and self.conn:
                 self.conn.close()
