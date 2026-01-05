@@ -1,7 +1,6 @@
 """
 هندلرهای مربوط به پنل ادمین
-🔴 FIX باگ 1: ذخیره صحیح channel_message_id
-✅ FIX: ترتیب صحیح log_admin_action
+✅ بروزرسانی شده با Cache Invalidation
 """
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
@@ -53,7 +52,6 @@ async def product_name_received(update: Update, context: ContextTypes.DEFAULT_TY
     
     name = update.message.text
     
-    # 🔒 اعتبارسنجی نام محصول
     is_valid, error_msg, cleaned_name = Validators.validate_product_name(name)
     
     if not is_valid:
@@ -61,7 +59,7 @@ async def product_name_received(update: Update, context: ContextTypes.DEFAULT_TY
             error_msg,
             reply_markup=cancel_keyboard()
         )
-        return PRODUCT_NAME  # دوباره بپرس
+        return PRODUCT_NAME
     
     context.user_data['product_name'] = cleaned_name
     await update.message.reply_text("📄 توضیحات محصول را وارد کنید:")
@@ -88,35 +86,35 @@ async def product_photo_received(update: Update, context: ContextTypes.DEFAULT_T
     photo = update.message.photo[-1]
     context.user_data['product_photo'] = photo.file_id
     
-    # ذخیره در دیتابیس
     db = context.bot_data['db']
     
-    # ✅ FIX: اول محصول رو ثبت کن
     product_id = db.add_product(
         context.user_data['product_name'],
         context.user_data['product_desc'],
         context.user_data['product_photo']
     )
     
-    # ✅ FIX: بعد لاگ کن (الان product_id داریم)
     log_admin_action(
         update.effective_user.id, 
         "افزودن محصول", 
         f"ID: {product_id}"
     )
     
+    # 🆕 Invalidate cache
+    cache_manager = context.bot_data.get('cache_manager')
+    if cache_manager:
+        cache_manager.invalidate_pattern("products:")
+    
     await update.message.reply_text(
         MESSAGES["product_added"],
         reply_markup=admin_main_keyboard()
     )
     
-    # نمایش گزینه‌های مدیریت محصول
     await update.message.reply_text(
         f"محصول با شناسه {product_id} ثبت شد.\n\nحالا می‌توانید پک‌ها را اضافه کنید:",
         reply_markup=product_management_keyboard(product_id)
     )
     
-    # پاک کردن داده‌های موقت
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -126,8 +124,14 @@ async def list_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update.effective_user.id):
         return
     
+    # 🆕 استفاده از Cache
+    db_cache = context.bot_data.get('db_cache')
     db = context.bot_data['db']
-    products = db.get_all_products()
+    
+    if db_cache:
+        products = db_cache.get_all_products()
+    else:
+        products = db.get_all_products()
     
     if not products:
         await update.message.reply_text("هیچ محصولی ثبت نشده است.")
@@ -135,7 +139,12 @@ async def list_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     for product in products:
         product_id, name, desc, photo_id, *_ = product
-        packs = db.get_packs(product_id)
+        
+        # 🆕 استفاده از Cache برای پک‌ها
+        if db_cache:
+            packs = db_cache.get_packs(product_id)
+        else:
+            packs = db.get_packs(product_id)
         
         text = f"🏷 {name}\n\n{desc}\n\n"
         if packs:
@@ -185,7 +194,6 @@ async def pack_name_received(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     name = update.message.text
     
-    # 🔒 اعتبارسنجی نام پک
     is_valid, error_msg, cleaned_name = Validators.validate_pack_name(name)
     
     if not is_valid:
@@ -193,7 +201,7 @@ async def pack_name_received(update: Update, context: ContextTypes.DEFAULT_TYPE)
             error_msg,
             reply_markup=cancel_keyboard()
         )
-        return PACK_NAME  # دوباره بپرس
+        return PACK_NAME
     
     context.user_data['pack_name'] = cleaned_name
     await update.message.reply_text("🔢 تعداد در پک را وارد کنید (مثال: ۶):")
@@ -208,7 +216,6 @@ async def pack_quantity_received(update: Update, context: ContextTypes.DEFAULT_T
     
     quantity_str = update.message.text
     
-    # 🔒 اعتبارسنجی تعداد
     is_valid, error_msg, quantity = Validators.validate_quantity(quantity_str, min_value=1, max_value=1000)
     
     if not is_valid:
@@ -216,7 +223,7 @@ async def pack_quantity_received(update: Update, context: ContextTypes.DEFAULT_T
             error_msg,
             reply_markup=cancel_keyboard()
         )
-        return PACK_QUANTITY  # دوباره بپرس
+        return PACK_QUANTITY
     
     context.user_data['pack_quantity'] = quantity
     await update.message.reply_text("💰 قیمت پک را وارد کنید (به تومان):")
@@ -231,7 +238,6 @@ async def pack_price_received(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     price_str = update.message.text
     
-    # 🔒 اعتبارسنجی قیمت
     is_valid, error_msg, price = Validators.validate_price(price_str)
     
     if not is_valid:
@@ -239,23 +245,28 @@ async def pack_price_received(update: Update, context: ContextTypes.DEFAULT_TYPE
             error_msg,
             reply_markup=cancel_keyboard()
         )
-        return PACK_PRICE  # دوباره بپرس
+        return PACK_PRICE
     
-    # ذخیره در دیتابیس
     db = context.bot_data['db']
+    product_id = context.user_data['adding_pack_to']
+    
     db.add_pack(
-        context.user_data['adding_pack_to'],
+        product_id,
         context.user_data['pack_name'],
         context.user_data['pack_quantity'],
         price
     )
+    
+    # 🆕 Invalidate cache
+    cache_manager = context.bot_data.get('cache_manager')
+    if cache_manager:
+        cache_manager.invalidate(f"packs:{product_id}")
     
     await update.message.reply_text(
         MESSAGES["pack_added"],
         reply_markup=admin_main_keyboard()
     )
     
-    # پاک کردن داده‌های موقت
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -266,8 +277,15 @@ async def view_packs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     
     product_id = int(query.data.split(":")[1])
+    
+    # 🆕 استفاده از Cache
+    db_cache = context.bot_data.get('db_cache')
     db = context.bot_data['db']
-    packs = db.get_packs(product_id)
+    
+    if db_cache:
+        packs = db_cache.get_packs(product_id)
+    else:
+        packs = db.get_packs(product_id)
     
     if not packs:
         await query.message.reply_text("هیچ پکی برای این محصول تعریف نشده است.")
@@ -285,7 +303,7 @@ async def view_packs(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def get_channel_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """🔴 FIX باگ 1: ارسال محصول به کانال + ذخیره message_id"""
+    """ارسال محصول به کانال + ذخیره message_id"""
     query = update.callback_query
     await query.answer()
     
@@ -297,9 +315,17 @@ async def get_channel_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     product_id = int(query.data.split(":")[1])
+    
+    # 🆕 استفاده از Cache
+    db_cache = context.bot_data.get('db_cache')
     db = context.bot_data['db']
-    product = db.get_product(product_id)
-    packs = db.get_packs(product_id)
+    
+    if db_cache:
+        product = db_cache.get_product(product_id)
+        packs = db_cache.get_packs(product_id)
+    else:
+        product = db.get_product(product_id)
+        packs = db.get_packs(product_id)
     
     if not product:
         await query.message.reply_text("❌ محصول یافت نشد.")
@@ -311,7 +337,6 @@ async def get_channel_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     _, name, desc, photo_id, *_ = product
     
-    # ساخت متن پست با لیست پک‌ها
     caption = f"🏷 **{name}**\n\n"
     caption += f"{desc}\n\n"
     caption += "📦 **پک‌های موجود:**\n\n"
@@ -325,10 +350,8 @@ async def get_channel_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     caption += "\n💎 برای سفارش روی دکمه پک مورد نظر کلیک کنید 👇"
     
-    # ساخت کیبورد با دکمه‌های کوتاه
     keyboard = []
     
-    # دکمه‌های پک‌ها
     for idx, pack in enumerate(packs):
         pack_id, prod_id, pack_name, quantity, price = pack
         pack_num = pack_names[idx] if idx < len(pack_names) else f"{idx + 1}"
@@ -338,14 +361,12 @@ async def get_channel_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
             callback_data=f"select_pack:{product_id}:{pack_id}"
         )])
     
-    # دکمه ثابت سبد خرید
     bot_username = context.bot.username
     keyboard.append([InlineKeyboardButton(
         "🛒 مشاهده سبد خرید من",
         url=f"https://t.me/{bot_username}?start=view_cart"
     )])
     
-    # ارسال به کانال
     try:
         sent_message = None
         
@@ -365,7 +386,6 @@ async def get_channel_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
         
-        # 🔴 FIX باگ 1: ذخیره message_id
         if sent_message:
             message_id = sent_message.message_id
             success = db.save_channel_message_id(product_id, message_id)
@@ -414,6 +434,13 @@ async def delete_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db = context.bot_data['db']
     db.delete_product(product_id)
     
+    # 🆕 Invalidate cache
+    cache_manager = context.bot_data.get('cache_manager')
+    if cache_manager:
+        cache_manager.invalidate(f"product:{product_id}")
+        cache_manager.invalidate(f"packs:{product_id}")
+        cache_manager.invalidate_pattern("products:")
+    
     await query.message.reply_text("✅ محصول حذف شد.")
     await query.message.delete()
 
@@ -423,8 +450,14 @@ async def show_statistics(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update.effective_user.id):
         return
     
+    # 🆕 استفاده از Cache
+    db_cache = context.bot_data.get('db_cache')
     db = context.bot_data['db']
-    stats = db.get_statistics()
+    
+    if db_cache:
+        stats = db_cache.get_statistics()
+    else:
+        stats = db.get_statistics()
     
     text = "📊 **آمار فروشگاه**\n"
     text += "═" * 25 + "\n\n"
