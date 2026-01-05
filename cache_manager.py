@@ -8,7 +8,7 @@
 """
 import time
 import logging
-from typing import Any, Optional, Dict, Callable
+from typing import Any, Optional, Dict, Callable, List, Tuple
 from functools import wraps
 from datetime import datetime
 from collections import OrderedDict
