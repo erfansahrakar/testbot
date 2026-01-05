@@ -357,17 +357,14 @@ def main():
     from backup_scheduler import setup_backup_job, setup_backup_folder
     setup_backup_folder()
     
-    from handlers.analytics import scheduled_cleanup
-
-if hasattr(application, 'job_queue') and application.job_queue is not None:
-    # هر شب ساعت 3 صبح پاکسازی کن
-    from datetime import time
-    application.job_queue.run_daily(
-        scheduled_cleanup,
-        time=time(hour=3, minute=0),
-        name="analytics_cleanup"
-    )
-    logger.info("✅ Analytics cleanup scheduled (daily 3:00 AM)")
+    try:
+        if hasattr(application, 'job_queue') and application.job_queue is not None:
+            setup_backup_job(application)
+            logger.info("✅ بکاپ خودکار روزانه فعال شد")
+        else:
+            logger.warning("⚠️ JobQueue در دسترس نیست - بکاپ خودکار غیرفعال است")
+    except Exception as e:
+        logger.warning(f"⚠️ خطا در راه‌اندازی بکاپ خودکار: {e}")
     
     # 🔴 FIX باگ 11: راه‌اندازی به‌روزرسانی دوره‌ای آمار
     try:
@@ -623,4 +620,3 @@ if hasattr(application, 'job_queue') and application.job_queue is not None:
 
 if __name__ == '__main__':
     main()
-
