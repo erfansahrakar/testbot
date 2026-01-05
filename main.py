@@ -1,13 +1,15 @@
 """
 ربات فروشگاه مانتو تلگرام
-فایل اصلی - نسخه اصلاح شده
-✅ Graceful Shutdown اضافه شده
-✅ رفع باگ Global Rate Limit
-✅ بهبود Error Handling
+✅ نسخه بروزرسانی شده با:
+- Health Check
+- Better Error Handling
+- Caching
+- Admin Dashboard
 """
 import logging
 import signal
 import sys
+import time
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -34,6 +36,15 @@ from logger import (
 
 from rate_limiter import rate_limiter
 from states import *
+
+# 🆕 ایمپورت ماژول‌های جدید
+from health_check import HealthChecker
+from error_handler import EnhancedErrorHandler, handle_errors
+from cache_manager import cache_manager, DatabaseCache
+from admin_dashboard import (
+    admin_dashboard,
+    handle_dashboard_callback
+)
 
 # تنظیم لاگینگ
 logging.basicConfig(
@@ -89,6 +100,8 @@ async def handle_text_messages(update: Update, context):
             return await show_statistics(update, context)
         elif text == "📈 گزارش‌های تحلیلی":
             return await send_analytics_menu(update, context)
+        elif text == "🎛 داشبورد":  # 🆕
+            return await admin_dashboard(update, context)
     
     # دستورات کاربر
     if text == "🛒 سبد خرید":
@@ -121,56 +134,45 @@ async def handle_photos(update: Update, context):
 
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """مدیریت خطاها"""
+    """مدیریت خطاها - نسخه پیشرفته"""
     error = context.error
     
-    # لاگ کامل
-    logger.error(f"❌ Exception while handling update {update}:", exc_info=error)
+    # 🆕 استفاده از Enhanced Error Handler
+    enhanced_error_handler = context.bot_data.get('error_handler')
     
-    # پیام به کاربر
-    if update and update.effective_user:
-        try:
-            await context.bot.send_message(
-                update.effective_user.id,
-                "❌ متأسفانه خطایی رخ داد. لطفاً دوباره تلاش کنید.\n\n"
-                "اگه مشکل ادامه داشت، با پشتیبانی تماس بگیرید."
-            )
-        except:
-            pass
-    
-    # اطلاع به ادمین
-    if isinstance(error, Exception):
-        error_text = f"""
-🚨 **خطای ربات**
-
-نوع: `{type(error).__name__}`
-پیام: `{str(error)}`
-کاربر: {update.effective_user.id if update and update.effective_user else 'Unknown'}
-        """
+    if enhanced_error_handler:
+        user_id = update.effective_user.id if update and update.effective_user else None
         
-        try:
-            await context.bot.send_message(ADMIN_ID, error_text, parse_mode='Markdown')
-        except:
-            pass
+        await enhanced_error_handler.handle_error(
+            error=error,
+            context=context,
+            user_id=user_id,
+            extra_info={'update_type': type(update).__name__}
+        )
+    else:
+        # Fallback به error handler قدیمی
+        logger.error(f"❌ Exception while handling update {update}:", exc_info=error)
+        
+        if update and update.effective_user:
+            try:
+                await context.bot.send_message(
+                    update.effective_user.id,
+                    "❌ متأسفانه خطایی رخ داد. لطفاً دوباره تلاش کنید."
+                )
+            except:
+                pass
 
 
 async def global_rate_limit_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    بررسی محدودیت سراسری برای همه درخواست‌ها
-    ✅ اصلاح شده: دیگه exception throw نمی‌کنه
-    محدودیت: 20 درخواست در دقیقه
-    """
-    # فقط برای کاربران (نه برای channel post ها)
+    """بررسی محدودیت سراسری"""
     if not update.effective_user:
         return
     
     user_id = update.effective_user.id
     
-    # ادمین bypass کنه
     if user_id == ADMIN_ID:
         return
     
-    # بررسی محدودیت
     allowed, remaining_time = rate_limiter.check_rate_limit(
         user_id,
         max_requests=20,
@@ -178,7 +180,6 @@ async def global_rate_limit_check(update: Update, context: ContextTypes.DEFAULT_
     )
     
     if not allowed:
-        # محاسبه زمان انتظار
         minutes = remaining_time // 60
         seconds = remaining_time % 60
         
@@ -187,7 +188,6 @@ async def global_rate_limit_check(update: Update, context: ContextTypes.DEFAULT_
         else:
             wait_msg = f"{seconds} ثانیه"
         
-        # ارسال پیام خطا
         try:
             if update.message:
                 await update.message.reply_text(
@@ -204,21 +204,14 @@ async def global_rate_limit_check(update: Update, context: ContextTypes.DEFAULT_
         except Exception as e:
             logger.error(f"❌ Rate limit error: {e}")
         
-        # ✅ FIX: فقط return کن، exception نزن
         return
-    
-    # اگه allowed بود، ادامه بده (هیچی return نکن)
 
 
 def setup_signal_handlers(application, db):
-    """
-    تنظیم signal handlers برای Graceful Shutdown
-    """
+    """تنظیم signal handlers برای Graceful Shutdown"""
     def signal_handler(sig, frame):
-        """مدیریت سیگنال خروج"""
         logger.info(f"🛑 Received signal {sig}, shutting down gracefully...")
         
-        # بستن دیتابیس
         try:
             if db:
                 db.close()
@@ -226,15 +219,11 @@ def setup_signal_handlers(application, db):
         except Exception as e:
             logger.error(f"❌ Error closing database: {e}")
         
-        # لاگ shutdown
         log_shutdown()
-        
-        # خروج
         sys.exit(0)
     
-    # ثبت signal handlers
-    signal.signal(signal.SIGINT, signal_handler)   # Ctrl+C
-    signal.signal(signal.SIGTERM, signal_handler)  # kill command
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
     
     logger.info("✅ Signal handlers registered")
 
@@ -243,7 +232,10 @@ def main():
     """تابع اصلی"""
     log_startup()
     
-    # Import توابع admin
+    # ثبت زمان شروع
+    start_time = time.time()
+    
+    # Import توابع
     from handlers.admin import (
         add_product_start, product_name_received, product_desc_received,
         product_photo_received, add_pack_start, pack_name_received,
@@ -251,7 +243,6 @@ def main():
         get_channel_link, delete_product, admin_start
     )
     
-    # Import توابع admin_extended (ویرایش)
     from handlers.admin_extended import (
         edit_product_menu, edit_product_name_start, edit_product_name_received,
         edit_product_desc_start, edit_product_desc_received,
@@ -261,14 +252,12 @@ def main():
         delete_pack_confirm, edit_in_channel, back_to_product
     )
     
-    # Import توابع admin_pack_management (مدیریت پک‌ها)
     from handlers.admin_pack_management import (
         manage_packs_menu,
         confirm_delete_pack,
         delete_pack_final
     )
     
-    # Import توابع user
     from handlers.user import (
         finalize_order_start, full_name_received, address_text_received, 
         phone_number_received, use_old_address,
@@ -278,20 +267,17 @@ def main():
         back_to_packs, user_start, confirm_user_info, edit_user_info_for_order
     )
     
-    # Import توابع user_discount (کد تخفیف کاربر)
     from handlers.user_discount import (
         apply_discount_start,
         discount_code_entered
     )
     
-    # Import توابع order
     from handlers.order import (
         confirm_order, reject_order, confirm_payment, reject_payment,
         remove_item_from_order, reject_full_order, back_to_order_review,
         confirm_modified_order
     )
     
-    # Import توابع order_management (مدیریت پیشرفته)
     from handlers.order_management import (
         increase_item_quantity,
         decrease_item_quantity,
@@ -299,7 +285,6 @@ def main():
         edit_item_quantity_received
     )
     
-    # Import توابع discount
     from handlers.discount import (
         create_discount_start, discount_code_received, discount_type_selected,
         discount_value_received, discount_min_purchase_received,
@@ -308,19 +293,26 @@ def main():
         list_discounts, view_discount, toggle_discount, delete_discount
     )
     
-    # Import توابع broadcast
     from handlers.broadcast import (
         broadcast_start, broadcast_message_received, 
         confirm_broadcast, cancel_broadcast
     )
     
-    # Import توابع analytics
     from handlers.analytics import handle_analytics_report
     
     # ایجاد دیتابیس
     db = Database()
     
-    # ساخت اپلیکیشن با فعال‌سازی Job Queue
+    # 🆕 ایجاد DatabaseCache
+    db_cache = DatabaseCache(db, cache_manager)
+    
+    # 🆕 ایجاد Health Checker
+    health_checker = HealthChecker(db, start_time)
+    
+    # 🆕 ایجاد Error Handler
+    enhanced_error_handler = EnhancedErrorHandler(health_checker)
+    
+    # ساخت اپلیکیشن
     try:
         application = (
             Application.builder()
@@ -333,13 +325,17 @@ def main():
         logger.warning(f"⚠️ خطا در ساخت JobQueue: {e}")
         application = Application.builder().token(BOT_TOKEN).build()
     
-    # ذخیره دیتابیس در bot_data
+    # ذخیره در bot_data
     application.bot_data['db'] = db
+    application.bot_data['db_cache'] = db_cache  # 🆕
+    application.bot_data['cache_manager'] = cache_manager  # 🆕
+    application.bot_data['health_checker'] = health_checker  # 🆕
+    application.bot_data['error_handler'] = enhanced_error_handler  # 🆕
     
-    # ✅ تنظیم Signal Handlers برای Graceful Shutdown
+    # تنظیم Signal Handlers
     setup_signal_handlers(application, db)
     
-    # ✅ اضافه کردن Global Rate Limiter (اصلاح شده)
+    # اضافه کردن Global Rate Limiter
     application.add_handler(
         TypeHandler(Update, global_rate_limit_check),
         group=-1
@@ -515,6 +511,9 @@ def main():
     application.add_handler(edit_user_info_conv)
     application.add_handler(final_edit_conv)
     
+    # 🆕 Dashboard handlers
+    application.add_handler(CallbackQueryHandler(handle_dashboard_callback, pattern="^dash:"))
+    
     # CallbackQuery هندلرها
     application.add_handler(CallbackQueryHandler(handle_pack_selection, pattern="^select_pack:"))
     application.add_handler(CallbackQueryHandler(back_to_packs, pattern="^back_to_packs:"))
@@ -566,11 +565,15 @@ def main():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_messages))
     application.add_handler(MessageHandler(filters.PHOTO, handle_photos))
     
-    # ✅ Error handler بهبود یافته
+    # Error handler
     application.add_error_handler(error_handler)
     
     # شروع ربات
-    logger.info("🤖 ربات شروع به کار کرد!")
+    logger.info("🤖 ربات با قابلیت‌های جدید شروع به کار کرد!")
+    logger.info("✅ Health Check فعال")
+    logger.info("✅ Enhanced Error Handler فعال")
+    logger.info("✅ Cache Manager فعال")
+    logger.info("✅ Admin Dashboard فعال")
     
     try:
         application.run_polling(allowed_updates=Update.ALL_TYPES)
@@ -579,7 +582,6 @@ def main():
     except Exception as e:
         logger.error(f"❌ Fatal error: {e}", exc_info=True)
     finally:
-        # Cleanup
         try:
             db.close()
         except:
