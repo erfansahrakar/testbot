@@ -1,15 +1,15 @@
 """
-ربات فروشگاه مانتو تلگرام
-✅ نسخه بروزرسانی شده با:
-- Health Check
-- Better Error Handling
-- Caching
-- Admin Dashboard
+🚀 ربات فروشگاه مانتو تلگرام - نسخه بهینه شده
+✅ Progress Indicators
+✅ Loading Messages
+✅ Better Error Handling
+✅ Performance Optimized
 """
 import logging
 import signal
 import sys
 import time
+import asyncio
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -54,9 +54,38 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+# ==================== Progress Indicators ====================
+
+async def show_progress(message, text: str, duration: float = 2.0):
+    """🆕 نمایش پیام loading با انیمیشن"""
+    emojis = ["⏳", "⌛", "🔄", "⚙️", "🔧"]
+    
+    for i in range(int(duration / 0.5)):
+        emoji = emojis[i % len(emojis)]
+        try:
+            await message.edit_text(f"{emoji} {text}")
+            await asyncio.sleep(0.5)
+        except:
+            break
+
+
+async def show_typing(context, chat_id: int, duration: float = 1.0):
+    """🆕 نمایش typing indicator"""
+    try:
+        await context.bot.send_chat_action(chat_id, "typing")
+        await asyncio.sleep(min(duration, 5.0))
+    except:
+        pass
+
+
+# ==================== Command Handlers ====================
+
 async def start(update: Update, context):
-    """هندلر دستور /start"""
+    """هندلر دستور /start با loading indicator"""
     user_id = update.effective_user.id
+    
+    # 🆕 نمایش typing
+    await show_typing(context, update.effective_chat.id, 0.5)
     
     from handlers.admin import admin_start
     from handlers.user import user_start
@@ -67,8 +96,8 @@ async def start(update: Update, context):
         await user_start(update, context)
 
 
-async def handle_text_messages(update: Update, context):
-    """مدیریت پیام‌های متنی"""
+async def handle_text_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """مدیریت پیام‌های متنی با progress indicators"""
     text = update.message.text
     user_id = update.effective_user.id
     
@@ -84,37 +113,76 @@ async def handle_text_messages(update: Update, context):
     if user_id == ADMIN_ID:
         if text == "➕ افزودن محصول":
             return await add_product_start(update, context)
+        
         elif text == "📦 لیست محصولات":
+            # 🆕 Loading indicator
+            loading_msg = await update.message.reply_text("⏳ در حال بارگذاری محصولات...")
+            await show_typing(context, update.effective_chat.id, 0.5)
+            await loading_msg.delete()
             return await list_products(update, context)
+        
         elif text == "📋 سفارشات جدید":
+            loading_msg = await update.message.reply_text("⏳ در حال بررسی سفارشات...")
+            await show_typing(context, update.effective_chat.id, 0.5)
+            await loading_msg.delete()
             return await view_pending_orders(update, context)
+        
         elif text == "💳 تایید پرداخت‌ها":
+            loading_msg = await update.message.reply_text("⏳ در حال بررسی رسیدها...")
+            await show_typing(context, update.effective_chat.id, 0.5)
+            await loading_msg.delete()
             return await view_payment_receipts(update, context)
+        
         elif text == "🎁 مدیریت تخفیف‌ها":
             return await discount_menu(update, context)
+        
         elif text == "📢 پیام همگانی":
             return await broadcast_start(update, context)
+        
         elif text == "💾 بکاپ دستی":
-            return await manual_backup(update, context)
+            # 🆕 Progress indicator برای backup
+            loading_msg = await update.message.reply_text("⏳ در حال ایجاد بکاپ...")
+            result = await manual_backup(update, context)
+            await loading_msg.delete()
+            return result
+        
         elif text == "📊 آمار":
+            loading_msg = await update.message.reply_text("⏳ در حال محاسبه آمار...")
+            await show_typing(context, update.effective_chat.id, 0.5)
+            await loading_msg.delete()
             return await show_statistics(update, context)
+        
         elif text == "📈 گزارش‌های تحلیلی":
             return await send_analytics_menu(update, context)
-        elif text == "🎛 داشبورد":  # 🆕
+        
+        elif text == "🎛 داشبورد":
+            loading_msg = await update.message.reply_text("⏳ در حال بارگذاری داشبورد...")
+            await show_typing(context, update.effective_chat.id, 0.5)
+            await loading_msg.delete()
             return await admin_dashboard(update, context)
     
     # دستورات کاربر
     if text == "🛒 سبد خرید":
+        loading_msg = await update.message.reply_text("⏳ در حال بارگذاری سبد خرید...")
+        await show_typing(context, update.effective_chat.id, 0.3)
+        await loading_msg.delete()
         await view_cart(update, context)
+    
     elif text == "📦 سفارشات من":
+        loading_msg = await update.message.reply_text("⏳ در حال بررسی سفارشات شما...")
+        await show_typing(context, update.effective_chat.id, 0.5)
+        await loading_msg.delete()
         await view_my_orders(update, context)
+    
     elif text == "📍 آدرس ثبت شده من":
         await view_my_address(update, context)
+    
     elif text == "📞 تماس با ما":
         await contact_us(update, context)
+    
     elif text == "ℹ️ راهنما":
         await update.message.reply_text(
-            "📚 راهنمای استفاده:\n\n"
+            "📚 **راهنمای استفاده:**\n\n"
             "1️⃣ از کانال ما محصولات را مشاهده کنید: @manto_omdeh_erfan\n"
             "2️⃣ روی دکمه پک مورد نظر کلیک کنید\n"
             "3️⃣ هر بار کلیک = 1 پک به سبد اضافه می‌شود\n"
@@ -123,14 +191,25 @@ async def handle_text_messages(update: Update, context):
             "6️⃣ سفارش خود را نهایی کنید\n"
             "7️⃣ بعد از تایید، مبلغ را واریز کنید\n"
             "8️⃣ رسید را ارسال کنید\n"
-            "9️⃣ سفارش شما ارسال می‌شود! 🎉"
+            "9️⃣ سفارش شما ارسال می‌شود! 🎉",
+            parse_mode='Markdown'
         )
 
 
-async def handle_photos(update: Update, context):
-    """مدیریت عکس‌ها (رسیدها)"""
+async def handle_photos(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """مدیریت عکس‌ها (رسیدها) با confirmation"""
     from handlers.order import handle_receipt
+    
+    # 🆕 نمایش پیام تایید
+    loading_msg = await update.message.reply_text("✅ رسید دریافت شد! در حال پردازش...")
+    await show_typing(context, update.effective_chat.id, 0.5)
+    
     await handle_receipt(update, context)
+    
+    try:
+        await loading_msg.delete()
+    except:
+        pass
 
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -164,7 +243,7 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def global_rate_limit_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """بررسی محدودیت سراسری"""
+    """بررسی محدودیت سراسری با پیام بهتر"""
     if not update.effective_user:
         return
     
@@ -193,7 +272,8 @@ async def global_rate_limit_check(update: Update, context: ContextTypes.DEFAULT_
                 await update.message.reply_text(
                     f"🛑 **محدودیت درخواست!**\n\n"
                     f"⏰ لطفاً {wait_msg} صبر کنید.\n\n"
-                    f"💡 محدودیت: 20 درخواست در دقیقه",
+                    f"💡 محدودیت: 20 درخواست در دقیقه\n\n"
+                    f"✨ این محدودیت برای جلوگیری از spam و حفظ کیفیت سرویس است.",
                     parse_mode='Markdown'
                 )
             elif update.callback_query:
@@ -213,11 +293,25 @@ def setup_signal_handlers(application, db):
         logger.info(f"🛑 Received signal {sig}, shutting down gracefully...")
         
         try:
+            # نمایش آمار قبل از بستن
             if db:
+                try:
+                    cache_stats = db.get_cache_stats()
+                    logger.info(f"📊 Final Cache Stats: {cache_stats}")
+                except:
+                    pass
+                
                 db.close()
                 logger.info("✅ Database closed successfully")
         except Exception as e:
             logger.error(f"❌ Error closing database: {e}")
+        
+        # نمایش آمار cache manager
+        try:
+            stats = cache_manager.get_stats()
+            logger.info(f"📊 Final CacheManager Stats: {stats}")
+        except:
+            pass
         
         log_shutdown()
         sys.exit(0)
@@ -229,11 +323,13 @@ def setup_signal_handlers(application, db):
 
 
 def main():
-    """تابع اصلی"""
+    """تابع اصلی با بهینه‌سازی کامل"""
     log_startup()
     
     # ثبت زمان شروع
     start_time = time.time()
+    
+    logger.info("⏳ Initializing bot components...")
     
     # Import توابع
     from handlers.admin import (
@@ -301,18 +397,27 @@ def main():
     from handlers.analytics import handle_analytics_report
     
     # ایجاد دیتابیس
+    logger.info("⏳ Initializing database...")
     db = Database()
+    logger.info("✅ Database initialized")
     
     # 🆕 ایجاد DatabaseCache
+    logger.info("⏳ Initializing cache system...")
     db_cache = DatabaseCache(db, cache_manager)
+    logger.info("✅ Cache system initialized")
     
     # 🆕 ایجاد Health Checker
+    logger.info("⏳ Initializing health checker...")
     health_checker = HealthChecker(db, start_time)
+    logger.info("✅ Health checker initialized")
     
     # 🆕 ایجاد Error Handler
+    logger.info("⏳ Initializing error handler...")
     enhanced_error_handler = EnhancedErrorHandler(health_checker)
+    logger.info("✅ Error handler initialized")
     
     # ساخت اپلیکیشن
+    logger.info("⏳ Building application...")
     try:
         application = (
             Application.builder()
@@ -327,15 +432,16 @@ def main():
     
     # ذخیره در bot_data
     application.bot_data['db'] = db
-    application.bot_data['db_cache'] = db_cache  # 🆕
-    application.bot_data['cache_manager'] = cache_manager  # 🆕
-    application.bot_data['health_checker'] = health_checker  # 🆕
-    application.bot_data['error_handler'] = enhanced_error_handler  # 🆕
+    application.bot_data['db_cache'] = db_cache
+    application.bot_data['cache_manager'] = cache_manager
+    application.bot_data['health_checker'] = health_checker
+    application.bot_data['error_handler'] = enhanced_error_handler
     
     # تنظیم Signal Handlers
     setup_signal_handlers(application, db)
     
     # اضافه کردن Global Rate Limiter
+    logger.info("⏳ Setting up rate limiter...")
     application.add_handler(
         TypeHandler(Update, global_rate_limit_check),
         group=-1
@@ -343,6 +449,7 @@ def main():
     logger.info("✅ Global rate limiter فعال شد")
     
     # راه‌اندازی بکاپ خودکار
+    logger.info("⏳ Setting up automatic backup...")
     from backup_scheduler import setup_backup_job, setup_backup_folder
     setup_backup_folder()
     
@@ -356,6 +463,8 @@ def main():
         logger.warning(f"⚠️ خطا در راه‌اندازی بکاپ خودکار: {e}")
     
     # ==================== ConversationHandler ها ====================
+    
+    logger.info("⏳ Setting up conversation handlers...")
     
     add_product_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^➕ افزودن محصول$"), add_product_start)],
@@ -495,6 +604,7 @@ def main():
     )
     
     # اضافه کردن handler ها
+    logger.info("⏳ Registering handlers...")
     application.add_handler(CommandHandler("start", start))
     application.add_handler(add_product_conv)
     application.add_handler(add_pack_conv)
@@ -511,7 +621,7 @@ def main():
     application.add_handler(edit_user_info_conv)
     application.add_handler(final_edit_conv)
     
-    # 🆕 Dashboard handlers
+    # Dashboard handlers
     application.add_handler(CallbackQueryHandler(handle_dashboard_callback, pattern="^dash:"))
     
     # CallbackQuery هندلرها
@@ -568,12 +678,22 @@ def main():
     # Error handler
     application.add_error_handler(error_handler)
     
+    logger.info("✅ All handlers registered")
+    
+    # محاسبه زمان initialization
+    init_time = time.time() - start_time
+    
     # شروع ربات
-    logger.info("🤖 ربات با قابلیت‌های جدید شروع به کار کرد!")
+    logger.info("="*60)
+    logger.info("🚀 ربات با موفقیت راه‌اندازی شد!")
+    logger.info(f"⏱️  زمان initialization: {init_time:.2f} ثانیه")
     logger.info("✅ Health Check فعال")
     logger.info("✅ Enhanced Error Handler فعال")
-    logger.info("✅ Cache Manager فعال")
+    logger.info("✅ Cache Manager با LRU فعال")
     logger.info("✅ Admin Dashboard فعال")
+    logger.info("✅ Progress Indicators فعال")
+    logger.info("✅ Database Query Optimization فعال")
+    logger.info("="*60)
     
     try:
         application.run_polling(allowed_updates=Update.ALL_TYPES)
