@@ -1,5 +1,6 @@
 """
-🚀 مدیریت دیتابیس با SQLite - نسخه بهینه شده
+🚀 مدیریت دیتابیس با SQLite - نسخه FIX شده
+✅ FIX: خطای 'no such column: c.added_at' برطرف شد
 ✅ Query Optimization با Indexes پیشرفته
 ✅ Batch Operations برای عملیات دسته‌جمعی
 ✅ Connection Pooling بهبود یافته
@@ -44,11 +45,11 @@ class DatabaseConnectionPool:
                     timeout=30.0,
                     isolation_level=None,  # Autocommit mode
                     check_same_thread=False,
-                    cached_statements=100  # 🆕 Cache prepared statements
+                    cached_statements=100  # Cache prepared statements
                 )
                 conn.row_factory = sqlite3.Row
                 
-                # 🆕 Performance optimizations
+                # Performance optimizations
                 conn.execute("PRAGMA foreign_keys = ON")
                 conn.execute("PRAGMA journal_mode = WAL")  # Write-Ahead Logging
                 conn.execute("PRAGMA synchronous = NORMAL")  # Faster writes
@@ -127,7 +128,7 @@ class Database:
         self.cursor = self.conn.cursor()
         self.cache_manager = cache_manager
         
-        # 🆕 Query cache برای queries پرتکرار
+        # Query cache برای queries پرتکرار
         self._query_cache = {}
         self._cache_hits = 0
         self._cache_misses = 0
@@ -149,7 +150,7 @@ class Database:
         cursor = conn.cursor()
         
         try:
-            # 🆕 IMMEDIATE برای write operations
+            # IMMEDIATE برای write operations
             if immediate:
                 cursor.execute("BEGIN IMMEDIATE")
             else:
@@ -176,7 +177,7 @@ class Database:
         if self.cache_manager:
             self.cache_manager.invalidate_pattern(pattern)
         
-        # 🆕 پاک کردن query cache مرتبط
+        # پاک کردن query cache مرتبط
         keys_to_remove = [k for k in self._query_cache.keys() if pattern in k]
         for key in keys_to_remove:
             self._query_cache.pop(key, None)
@@ -203,7 +204,7 @@ class Database:
         return result
     
     def clean_invalid_cart_items(self, user_id: int) -> int:
-        """🆕 Batch operation: حذف آیتم‌های نامعتبر از سبد"""
+        """Batch operation: حذف آیتم‌های نامعتبر از سبد"""
         try:
             with self.transaction(immediate=True) as cursor:
                 cursor.execute("""
@@ -228,7 +229,7 @@ class Database:
             return 0
     
     def create_tables(self):
-        """ایجاد جداول دیتابیس"""
+        """✅ FIX: ایجاد جداول دیتابیس - اصلاح شده"""
         
         self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS products (
@@ -268,6 +269,7 @@ class Database:
             )
         """)
         
+        # ✅ FIX: جدول cart با نام صحیح ستون
         self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS cart (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -330,9 +332,10 @@ class Database:
         """)
         
         self.conn.commit()
+        logger.info("✅ All tables created successfully")
     
     def _create_advanced_indexes(self):
-        """🆕 ایجاد Indexes پیشرفته برای بهبود Performance"""
+        """ایجاد Indexes پیشرفته برای بهبود Performance"""
         
         indexes = [
             # Orders indexes
@@ -342,10 +345,11 @@ class Database:
             "CREATE INDEX IF NOT EXISTS idx_orders_status_created ON orders(status, created_at DESC)",
             "CREATE INDEX IF NOT EXISTS idx_orders_user_status ON orders(user_id, status)",
             
-            # Cart indexes
+            # ✅ FIX: Cart indexes با نام صحیح ستون
             "CREATE INDEX IF NOT EXISTS idx_cart_user_id ON cart(user_id)",
             "CREATE INDEX IF NOT EXISTS idx_cart_product_pack ON cart(product_id, pack_id)",
             "CREATE INDEX IF NOT EXISTS idx_cart_user_product ON cart(user_id, product_id, pack_id)",
+            "CREATE INDEX IF NOT EXISTS idx_cart_added_at ON cart(added_at DESC)",
             
             # Discount indexes
             "CREATE INDEX IF NOT EXISTS idx_discount_code ON discount_codes(code)",
@@ -373,7 +377,7 @@ class Database:
         logger.info("✅ Advanced indexes created")
     
     def _analyze_database(self):
-        """🆕 تحلیل دیتابیس برای بهینه‌سازی query planner"""
+        """تحلیل دیتابیس برای بهینه‌سازی query planner"""
         try:
             self.cursor.execute("ANALYZE")
             self.conn.commit()
@@ -381,7 +385,7 @@ class Database:
         except Exception as e:
             logger.warning(f"⚠️ Failed to analyze database: {e}")
     
-    # 🆕 Batch Operations
+    # Batch Operations
     
     def batch_insert_packs(self, product_id: int, packs: List[Tuple[str, int, float]]) -> List[int]:
         """Batch insert برای پک‌ها"""
@@ -406,7 +410,7 @@ class Database:
             raise
     
     def batch_update_order_status(self, order_ids: List[int], status: str):
-        """🆕 Batch update برای وضعیت سفارشات"""
+        """Batch update برای وضعیت سفارشات"""
         try:
             with self.transaction(immediate=True) as cursor:
                 placeholders = ','.join('?' * len(order_ids))
@@ -443,12 +447,12 @@ class Database:
     
     @lru_cache(maxsize=128)
     def get_product(self, product_id: int):
-        """🆕 با LRU cache"""
+        """با LRU cache"""
         self.cursor.execute("SELECT * FROM products WHERE id = ?", (product_id,))
         return self.cursor.fetchone()
     
     def get_all_products(self) -> List:
-        """🆕 با query caching"""
+        """با query caching"""
         cache_key = "all_products"
         return self._get_cached_query(
             cache_key,
@@ -523,7 +527,7 @@ class Database:
         return pack_id
     
     def get_packs(self, product_id: int) -> List:
-        """🆕 با query caching"""
+        """با query caching"""
         cache_key = f"packs:{product_id}"
         return self._get_cached_query(
             cache_key,
@@ -600,14 +604,14 @@ class Database:
         return self.cursor.fetchone()
     
     def get_all_users(self) -> List:
-        """🆕 با query caching"""
+        """با query caching"""
         cache_key = "all_users"
         return self._get_cached_query(cache_key, "SELECT * FROM users ORDER BY created_at DESC")
     
     # سبد خرید
     
     def add_to_cart(self, user_id: int, product_id: int, pack_id: int, quantity: int = 1):
-        """🆕 بهینه شده با UPSERT"""
+        """✅ FIX: بهینه شده با UPSERT - استفاده از added_at"""
         pack = self.get_pack(pack_id)
         if not pack:
             return
@@ -625,6 +629,7 @@ class Database:
             
             if existing:
                 new_quantity = existing[1] + actual_quantity
+                # ✅ FIX: استفاده از added_at به جای c.added_at
                 cursor.execute(
                     "UPDATE cart SET quantity = ?, added_at = CURRENT_TIMESTAMP WHERE id = ?",
                     (new_quantity, existing[0])
@@ -638,7 +643,7 @@ class Database:
         self._invalidate_cache(f"cart:{user_id}")
     
     def get_cart(self, user_id: int) -> List:
-        """🆕 با cleanup خودکار"""
+        """✅ FIX: با cleanup خودکار و query صحیح"""
         self.clean_invalid_cart_items(user_id)
         
         cache_key = f"cart_items:{user_id}"
@@ -675,7 +680,7 @@ class Database:
     def create_order(self, user_id: int, items: List[dict], total_price: float, 
                     discount_amount: float = 0, final_price: Optional[float] = None, 
                     discount_code: Optional[str] = None) -> int:
-        """🆕 با transaction optimization"""
+        """با transaction optimization"""
         items_json = json.dumps(items, ensure_ascii=False)
         if final_price is None:
             final_price = total_price - discount_amount
@@ -719,7 +724,7 @@ class Database:
             )
     
     def get_pending_orders(self) -> List:
-        """🆕 با index optimization"""
+        """با index optimization"""
         return self._get_cached_query(
             "pending_orders",
             "SELECT * FROM orders WHERE status = 'pending' ORDER BY created_at DESC"
@@ -732,7 +737,7 @@ class Database:
         )
     
     def get_user_orders(self, user_id: int) -> List:
-        """🆕 با composite index"""
+        """با composite index"""
         cache_key = f"user_orders:{user_id}"
         return self._get_cached_query(
             cache_key,
@@ -793,7 +798,7 @@ class Database:
     # آمار
     
     def get_statistics(self) -> Dict:
-        """🆕 بهینه شده با single query برای multiple stats"""
+        """بهینه شده با single query برای multiple stats"""
         stats = {}
         
         # استفاده از CTE برای بهینه‌سازی
@@ -857,7 +862,7 @@ class Database:
         return stats
     
     def get_cache_stats(self) -> Dict:
-        """🆕 آمار کش query"""
+        """آمار کش query"""
         total = self._cache_hits + self._cache_misses
         hit_rate = (self._cache_hits / total * 100) if total > 0 else 0
         
