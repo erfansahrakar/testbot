@@ -640,8 +640,6 @@ class Database:
                 (user_id, product_id, pack_id, actual_quantity)
             )
     
-    self._invalidate_cache(f"cart:{user_id}")
-    
     def get_cart(self, user_id: int) -> List:
     """✅ FIX: بدون ORDER BY added_at"""
     self.clean_invalid_cart_items(user_id)
