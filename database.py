@@ -1,12 +1,14 @@
 """
 مدیریت دیتابیس با SQLite
-🔒 نسخه بهبود یافته با امنیت بالا
-✅ Transaction Management + Connection Pool + Error Handling
-🔴 جایگزین database.py قبلی می‌شود
+🔒 نسخه اصلاح شده با Thread Safety کامل
+✅ رفع باگ Connection Pool
+✅ Transaction Management بهبود یافته
+✅ Graceful Shutdown
 """
 import sqlite3
 import json
 import threading
+import atexit
 from logger import log_database_operation, log_error
 from datetime import datetime
 from typing import Optional, List
@@ -24,6 +26,10 @@ class DatabaseConnectionPool:
         self.database_name = database_name
         self._local = threading.local()
         self._lock = threading.Lock()
+        self._active_connections = []
+        
+        # ثبت cleanup در خروج
+        atexit.register(self.cleanup_all)
         
     def get_connection(self) -> sqlite3.Connection:
         """دریافت connection برای thread فعلی"""
@@ -32,14 +38,21 @@ class DatabaseConnectionPool:
                 conn = sqlite3.connect(
                     self.database_name,
                     timeout=30.0,
-                    isolation_level=None
+                    isolation_level=None,
+                    check_same_thread=False
                 )
                 conn.row_factory = sqlite3.Row
                 conn.execute("PRAGMA foreign_keys = ON")
+                conn.execute("PRAGMA journal_mode = WAL")  # بهبود performance
+                
                 self._local.connection = conn
-                logger.debug(f"Connection created for thread {threading.current_thread().name}")
+                
+                with self._lock:
+                    self._active_connections.append(conn)
+                
+                logger.debug(f"✅ Connection created for thread {threading.current_thread().name}")
             except sqlite3.Error as e:
-                logger.error(f"Failed to create connection: {e}")
+                logger.error(f"❌ Failed to create connection: {e}")
                 raise
         
         return self._local.connection
@@ -49,11 +62,32 @@ class DatabaseConnectionPool:
         if hasattr(self._local, 'connection') and self._local.connection is not None:
             try:
                 self._local.connection.close()
-                logger.debug(f"Connection closed for thread {threading.current_thread().name}")
+                
+                with self._lock:
+                    if self._local.connection in self._active_connections:
+                        self._active_connections.remove(self._local.connection)
+                
+                logger.debug(f"✅ Connection closed for thread {threading.current_thread().name}")
             except sqlite3.Error as e:
-                logger.error(f"Failed to close connection: {e}")
+                logger.error(f"❌ Failed to close connection: {e}")
             finally:
                 self._local.connection = None
+    
+    def cleanup_all(self):
+        """بستن تمام connection‌های فعال"""
+        logger.info("🧹 Cleaning up all database connections...")
+        
+        with self._lock:
+            for conn in self._active_connections[:]:
+                try:
+                    conn.close()
+                    logger.debug(f"✅ Connection closed during cleanup")
+                except Exception as e:
+                    logger.error(f"❌ Error closing connection: {e}")
+            
+            self._active_connections.clear()
+        
+        logger.info("✅ All connections cleaned up")
 
 
 class DatabaseError(Exception):
@@ -64,12 +98,47 @@ class DatabaseError(Exception):
 class Database:
     """کلاس مدیریت دیتابیس با امنیت بالا"""
 
+    def __init__(self):
+        """✅ اصلاح شده: فقط از Pool استفاده می‌کنه"""
+        self.pool = DatabaseConnectionPool(DATABASE_NAME)
+        self.conn = self.pool.get_connection()
+        self.cursor = self.conn.cursor()
+        self.create_tables()
+        
+        logger.info("✅ Database initialized successfully")
+    
+    def _get_conn(self) -> sqlite3.Connection:
+        """دریافت connection"""
+        return self.pool.get_connection()
+    
+    @contextmanager
+    def transaction(self):
+        """Context Manager برای تراکنش‌های دیتابیس"""
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute("BEGIN")
+            yield cursor
+            conn.commit()
+            logger.debug("✅ Transaction committed")
+        except sqlite3.IntegrityError as e:
+            conn.rollback()
+            logger.error(f"❌ IntegrityError: {e}")
+            raise DatabaseError(f"خطای یکپارچگی داده: {e}")
+        except sqlite3.OperationalError as e:
+            conn.rollback()
+            logger.error(f"❌ OperationalError: {e}")
+            raise DatabaseError(f"خطای عملیاتی: {e}")
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"❌ Transaction failed: {e}")
+            raise DatabaseError(f"خطای تراکنش: {e}")
+    
     def clean_invalid_cart_items(self, user_id: int):
         """
         حذف آیتم‌های نامعتبر از سبد
         (محصولات یا پک‌هایی که حذف شدن)
-    
-        ⚠️ این تابع رو قبل از get_cart صدا بزن تا از ارور جلوگیری بشه
         """
         try:
             self.cursor.execute("""
@@ -89,41 +158,8 @@ class Database:
             return deleted_count
         
         except Exception as e:
-            logger.error(f"خطا در پاکسازی سبد کاربر {user_id}: {e}")
+            logger.error(f"❌ خطا در پاکسازی سبد کاربر {user_id}: {e}")
             return 0
-        
-    def __init__(self):
-        self.conn = sqlite3.connect(DATABASE_NAME, check_same_thread=False)
-        self.cursor = self.conn.cursor()
-        self.pool = DatabaseConnectionPool(DATABASE_NAME)
-        self.create_tables()
-    
-    def _get_conn(self) -> sqlite3.Connection:
-        """دریافت connection"""
-        return self.pool.get_connection()
-    
-    @contextmanager
-    def transaction(self):
-        """Context Manager برای تراکنش‌های دیتابیس"""
-        conn = self._get_conn()
-        cursor = conn.cursor()
-        
-        try:
-            cursor.execute("BEGIN")
-            yield cursor
-            conn.commit()
-        except sqlite3.IntegrityError as e:
-            conn.rollback()
-            logger.error(f"IntegrityError: {e}")
-            raise DatabaseError(f"خطای یکپارچگی داده: {e}")
-        except sqlite3.OperationalError as e:
-            conn.rollback()
-            logger.error(f"OperationalError: {e}")
-            raise DatabaseError(f"خطای عملیاتی: {e}")
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"Transaction failed: {e}")
-            raise DatabaseError(f"خطای تراکنش: {e}")
     
     def create_tables(self):
         """ایجاد جداول دیتابیس"""
@@ -148,7 +184,7 @@ class Database:
                 name TEXT NOT NULL,
                 quantity INTEGER NOT NULL,
                 price REAL NOT NULL,
-                FOREIGN KEY (product_id) REFERENCES products(id)
+                FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
             )
         """)
         
@@ -175,9 +211,9 @@ class Database:
                 product_id INTEGER,
                 pack_id INTEGER,
                 quantity INTEGER DEFAULT 1,
-                FOREIGN KEY (user_id) REFERENCES users(user_id),
-                FOREIGN KEY (product_id) REFERENCES products(id),
-                FOREIGN KEY (pack_id) REFERENCES packs(id)
+                FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+                FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+                FOREIGN KEY (pack_id) REFERENCES packs(id) ON DELETE CASCADE
             )
         """)
         
@@ -250,7 +286,7 @@ class Database:
             try:
                 self.cursor.execute(index_sql)
             except sqlite3.Error as e:
-                logger.warning(f"Failed to create index: {e}")
+                logger.warning(f"⚠️ Failed to create index: {e}")
         
         self.conn.commit()
     
@@ -258,18 +294,15 @@ class Database:
     
     def add_product(self, name: str, description: str, photo_id: str):
         try:
-            self.cursor.execute(
-                "INSERT INTO products (name, description, photo_id) VALUES (?, ?, ?)",
-                (name, description, photo_id)
-            )
-            self.conn.commit()
-
-            product_id = self.cursor.lastrowid
-
-            # 🆕 لاگ عملیات
-            log_database_operation("INSERT", "products", product_id)
-
-            return product_id
+            with self.transaction() as cursor:
+                cursor.execute(
+                    "INSERT INTO products (name, description, photo_id) VALUES (?, ?, ?)",
+                    (name, description, photo_id)
+                )
+                product_id = cursor.lastrowid
+                
+                log_database_operation("INSERT", "products", product_id)
+                return product_id
 
         except Exception as e:
             log_error("Database", f"خطا در افزودن محصول: {e}")
@@ -318,24 +351,24 @@ class Database:
             )
             self.conn.commit()
             
-            # تایید ذخیره
             self.cursor.execute("SELECT channel_message_id FROM products WHERE id = ?", (product_id,))
             saved_id = self.cursor.fetchone()
+            
             if saved_id and saved_id[0] == message_id:
-                print(f"✅ باگ 1 FIX: channel_message_id={message_id} ذخیره شد برای product={product_id}")
+                logger.info(f"✅ channel_message_id={message_id} ذخیره شد برای product={product_id}")
                 return True
             else:
-                print(f"❌ باگ 1: خطا در ذخیره channel_message_id")
+                logger.error(f"❌ خطا در ذخیره channel_message_id")
                 return False
         except Exception as e:
-            print(f"❌ باگ 1: خطا در save_channel_message_id: {e}")
+            logger.error(f"❌ خطا در save_channel_message_id: {e}")
             return False
     
     def delete_product(self, product_id: int):
         """حذف محصول"""
-        self.cursor.execute("DELETE FROM products WHERE id = ?", (product_id,))
-        self.cursor.execute("DELETE FROM packs WHERE product_id = ?", (product_id,))
-        self.conn.commit()
+        with self.transaction() as cursor:
+            cursor.execute("DELETE FROM products WHERE id = ?", (product_id,))
+            cursor.execute("DELETE FROM packs WHERE product_id = ?", (product_id,))
     
     # ==================== پک‌ها ====================
     
@@ -405,7 +438,7 @@ class Database:
         self.cursor.execute("SELECT * FROM users")
         return self.cursor.fetchall()
         
-        # ==================== سبد خرید ====================
+    # ==================== سبد خرید ====================
     
     def add_to_cart(self, user_id: int, product_id: int, pack_id: int, quantity: int = 1):
         """افزودن به سبد خرید"""
@@ -434,14 +467,11 @@ class Database:
                 (user_id, product_id, pack_id, actual_quantity)
             )
         self.conn.commit()
-
     
     def get_cart(self, user_id: int):
         """دریافت سبد خرید - با پاکسازی خودکار"""
-        # ✅ اول آیتم‌های نامعتبر رو حذف کن
         self.clean_invalid_cart_items(user_id)
     
-        # بعد سبد رو برگردون
         self.cursor.execute("""
             SELECT c.id, p.name, pk.name, pk.quantity, pk.price, c.quantity
             FROM cart c
@@ -471,12 +501,12 @@ class Database:
         if final_price is None:
             final_price = total_price - discount_amount
         
-        self.cursor.execute(
-            "INSERT INTO orders (user_id, items, total_price, discount_amount, final_price, discount_code) VALUES (?, ?, ?, ?, ?, ?)",
-            (user_id, items_json, total_price, discount_amount, final_price, discount_code)
-        )
-        self.conn.commit()
-        return self.cursor.lastrowid
+        with self.transaction() as cursor:
+            cursor.execute(
+                "INSERT INTO orders (user_id, items, total_price, discount_amount, final_price, discount_code) VALUES (?, ?, ?, ?, ?, ?)",
+                (user_id, items_json, total_price, discount_amount, final_price, discount_code)
+            )
+            return cursor.lastrowid
     
     def get_order(self, order_id: int):
         """دریافت اطلاعات سفارش"""
@@ -547,15 +577,15 @@ class Database:
     
     def use_discount(self, user_id: int, discount_code: str, order_id: int):
         """ثبت استفاده از کد تخفیف"""
-        self.cursor.execute(
-            "INSERT INTO discount_usage (user_id, discount_code, order_id) VALUES (?, ?, ?)",
-            (user_id, discount_code, order_id)
-        )
-        self.cursor.execute(
-            "UPDATE discount_codes SET used_count = used_count + 1 WHERE code = ?",
-            (discount_code,)
-        )
-        self.conn.commit()
+        with self.transaction() as cursor:
+            cursor.execute(
+                "INSERT INTO discount_usage (user_id, discount_code, order_id) VALUES (?, ?, ?)",
+                (user_id, discount_code, order_id)
+            )
+            cursor.execute(
+                "UPDATE discount_codes SET used_count = used_count + 1 WHERE code = ?",
+                (discount_code,)
+            )
     
     def toggle_discount(self, discount_id: int):
         """فعال/غیرفعال کردن کد تخفیف"""
@@ -576,50 +606,39 @@ class Database:
         """دریافت آمار کلی"""
         stats = {}
         
-        # تعداد کل سفارشات
         self.cursor.execute("SELECT COUNT(*) FROM orders")
         stats['total_orders'] = self.cursor.fetchone()[0]
         
-        # تعداد سفارشات امروز
         self.cursor.execute("SELECT COUNT(*) FROM orders WHERE DATE(created_at) = DATE('now')")
         stats['today_orders'] = self.cursor.fetchone()[0]
         
-        # تعداد سفارشات این هفته
         self.cursor.execute("SELECT COUNT(*) FROM orders WHERE DATE(created_at) >= DATE('now', '-7 days')")
         stats['week_orders'] = self.cursor.fetchone()[0]
         
-        # درآمد کل (فقط سفارشات تایید شده)
         self.cursor.execute("SELECT SUM(final_price) FROM orders WHERE status IN ('confirmed', 'payment_confirmed')")
         total_income = self.cursor.fetchone()[0]
         stats['total_income'] = total_income if total_income else 0
         
-        # درآمد امروز
         self.cursor.execute("SELECT SUM(final_price) FROM orders WHERE status IN ('confirmed', 'payment_confirmed') AND DATE(created_at) = DATE('now')")
         today_income = self.cursor.fetchone()[0]
         stats['today_income'] = today_income if today_income else 0
         
-        # درآمد این هفته
         self.cursor.execute("SELECT SUM(final_price) FROM orders WHERE status IN ('confirmed', 'payment_confirmed') AND DATE(created_at) >= DATE('now', '-7 days')")
         week_income = self.cursor.fetchone()[0]
         stats['week_income'] = week_income if week_income else 0
         
-        # تعداد کاربران
         self.cursor.execute("SELECT COUNT(*) FROM users")
         stats['total_users'] = self.cursor.fetchone()[0]
         
-        # کاربران جدید این هفته
         self.cursor.execute("SELECT COUNT(*) FROM users WHERE DATE(created_at) >= DATE('now', '-7 days')")
         stats['week_new_users'] = self.cursor.fetchone()[0]
         
-        # تعداد محصولات
         self.cursor.execute("SELECT COUNT(*) FROM products")
         stats['total_products'] = self.cursor.fetchone()[0]
         
-        # تعداد سفارشات در انتظار
         self.cursor.execute("SELECT COUNT(*) FROM orders WHERE status = 'pending'")
         stats['pending_orders'] = self.cursor.fetchone()[0]
         
-        # محبوب‌ترین محصول
         self.cursor.execute("""
             SELECT items FROM orders 
             WHERE status IN ('confirmed', 'payment_confirmed')
@@ -640,5 +659,11 @@ class Database:
     
     def close(self):
         """بستن اتصال"""
-        self.conn.close()
-        self.pool.close_connection()
+        try:
+            if hasattr(self, 'conn') and self.conn:
+                self.conn.close()
+            if hasattr(self, 'pool') and self.pool:
+                self.pool.cleanup_all()
+            logger.info("✅ Database connections closed successfully")
+        except Exception as e:
+            logger.error(f"❌ Error closing database: {e}")
