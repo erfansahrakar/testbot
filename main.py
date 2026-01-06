@@ -6,7 +6,7 @@ import logging
 import signal
 import sys
 import time
-from datetime import time as datetime_time
+from datetime import time as datetime_time, datetime
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -70,14 +70,13 @@ async def handle_text_messages(update: Update, context):
     user_id = update.effective_user.id
     
     from handlers.admin import add_product_start, list_products, show_statistics
-    from handlers.order import view_pending_orders, view_payment_receipts
     from handlers.user import view_cart, view_my_address, contact_us
     from handlers.discount import discount_menu
     from handlers.broadcast import broadcast_start
     from backup_scheduler import manual_backup
     from handlers.analytics import send_analytics_menu
     
-    # 🆕 ایمپورت تابع جدید
+    # 🆕 ایمپورت توابع جدید
     from handlers.order import view_user_orders
     
     # دستورات ادمین
@@ -87,9 +86,10 @@ async def handle_text_messages(update: Update, context):
         elif text == "📦 لیست محصولات":
             return await list_products(update, context)
         elif text == "📋 سفارشات جدید":
-            return await view_pending_orders(update, context)
+            # 🔥 FIX: استفاده از تابع جدید
+            return await view_new_orders(update, context)
         elif text == "💳 تایید پرداخت‌ها":
-            return await view_payment_receipts(update, context)
+            return await view_payment_receipts_only(update, context)
         elif text == "🎁 مدیریت تخفیف‌ها":
             return await discount_menu(update, context)
         elif text == "📢 پیام همگانی":
@@ -102,14 +102,13 @@ async def handle_text_messages(update: Update, context):
             return await send_analytics_menu(update, context)
         elif text == "🎛 داشبورد":
             return await admin_dashboard(update, context)
-        elif text == "🧹 پاکسازی دیتابیس":  # 🆕 دکمه جدید
+        elif text == "🧹 پاکسازی دیتابیس":
             return await manual_cleanup(update, context)
     
     # دستورات کاربر
     if text == "🛒 سبد خرید":
         await view_cart(update, context)
     elif text == "📦 سفارشات من":
-        # 🆕 تغییر به تابع جدید
         await view_user_orders(update, context)
     elif text == "📍 آدرس ثبت شده من":
         await view_my_address(update, context)
@@ -128,6 +127,187 @@ async def handle_text_messages(update: Update, context):
             "8️⃣ رسید را ارسال کنید\n"
             "9️⃣ سفارش شما ارسال می‌شود! 🎉"
         )
+
+
+async def view_new_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    🆕 نمایش سفارشات جدید برای ادمین
+    شامل: pending + receipt_sent (فوری‌ترین)
+    """
+    from handlers.admin import is_admin
+    from keyboards import admin_main_keyboard
+    
+    if not await is_admin(update.effective_user.id):
+        return
+    
+    db = context.bot_data['db']
+    conn = db._get_conn()
+    cursor = conn.cursor()
+    
+    # دریافت سفارشات نیازمند بررسی
+    cursor.execute("""
+        SELECT * FROM orders 
+        WHERE status IN ('pending', 'receipt_sent')
+        AND datetime(expires_at) > datetime('now')
+        ORDER BY 
+            CASE status
+                WHEN 'receipt_sent' THEN 1
+                WHEN 'pending' THEN 2
+            END,
+            created_at DESC
+    """)
+    
+    orders = cursor.fetchall()
+    
+    if not orders:
+        await update.message.reply_text(
+            "✅ هیچ سفارش جدیدی برای بررسی وجود ندارد!",
+            reply_markup=admin_main_keyboard()
+        )
+        return
+    
+    # شمارش
+    pending_count = sum(1 for o in orders if o[7] == 'pending')
+    receipt_count = sum(1 for o in orders if o[7] == 'receipt_sent')
+    
+    summary = f"📋 **سفارشات جدید** ({len(orders)} سفارش)\n\n"
+    
+    if receipt_count > 0:
+        summary += f"🔥 {receipt_count} رسید منتظر تایید (فوری!)\n"
+    if pending_count > 0:
+        summary += f"⏳ {pending_count} سفارش منتظر بررسی اولیه\n"
+    
+    await update.message.reply_text(summary, parse_mode='Markdown')
+    
+    # نمایش سفارشات
+    from handlers.order import (
+        format_jalali_datetime,
+        is_order_expired,
+        order_confirmation_keyboard,
+        payment_confirmation_keyboard
+    )
+    import json
+    
+    for order in orders:
+        order_id, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt_photo, shipping_method, created_at, expires_at = order
+        items = json.loads(items_json)
+        user = db.get_user(user_id)
+        
+        first_name = user[2] if len(user) > 2 else "کاربر"
+        username = user[1] if len(user) > 1 and user[1] else "ندارد"
+        phone = user[4] if len(user) > 4 and user[4] else "ندارد"
+        full_name = user[3] if len(user) > 3 and user[3] else "ندارد"
+        address = user[6] if len(user) > 6 and user[6] else "ندارد"
+        
+        # متن سفارش
+        if status == 'receipt_sent':
+            text = f"💳 **رسید سفارش #{order_id}** (فوری!)\n\n"
+        else:
+            text = f"📋 **سفارش #{order_id}**\n\n"
+        
+        text += f"👤 {first_name} (@{username})\n"
+        text += f"📝 نام: {full_name}\n"
+        text += f"📞 {phone}\n"
+        text += f"📍 {address}\n\n"
+        
+        text += "📦 آیتم‌ها:\n"
+        for item in items:
+            text += f"• {item['product']} - {item['pack']}\n"
+            text += f"  تعداد: {item['quantity']} عدد\n"
+            if item.get('admin_notes'):
+                text += f"  📝 {item['admin_notes']}\n"
+        
+        text += f"\n💰 جمع: {total_price:,.0f} تومان\n"
+        
+        if discount_amount > 0:
+            text += f"🎁 تخفیف: {discount_amount:,.0f} تومان\n"
+            if discount_code:
+                text += f"🎫 کد: {discount_code}\n"
+            text += f"💳 نهایی: {final_price:,.0f} تومان\n"
+        
+        text += f"\n📅 {format_jalali_datetime(created_at)}\n"
+        text += f"⏰ انقضا: {format_jalali_datetime(expires_at)}"
+        
+        # ارسال بسته به وضعیت
+        if status == 'receipt_sent' and receipt_photo:
+            await update.message.reply_photo(
+                receipt_photo,
+                caption=text,
+                parse_mode='Markdown',
+                reply_markup=payment_confirmation_keyboard(order_id)
+            )
+        else:
+            await update.message.reply_text(
+                text,
+                parse_mode='Markdown',
+                reply_markup=order_confirmation_keyboard(order_id)
+            )
+
+
+async def view_payment_receipts_only(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    🆕 نمایش فقط رسیدهای منتظر تایید
+    """
+    from handlers.admin import is_admin
+    from keyboards import admin_main_keyboard
+    
+    if not await is_admin(update.effective_user.id):
+        return
+    
+    db = context.bot_data['db']
+    conn = db._get_conn()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT * FROM orders 
+        WHERE status = 'receipt_sent' 
+        ORDER BY created_at DESC
+    """)
+    
+    orders = cursor.fetchall()
+    
+    if not orders:
+        await update.message.reply_text(
+            "✅ هیچ رسیدی منتظر تایید نیست!",
+            reply_markup=admin_main_keyboard()
+        )
+        return
+    
+    await update.message.reply_text(f"💳 {len(orders)} رسید منتظر تایید:")
+    
+    from handlers.order import format_jalali_datetime, payment_confirmation_keyboard
+    import json
+    
+    for order in orders:
+        order_id, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt_photo, shipping_method, created_at, expires_at = order
+        items = json.loads(items_json)
+        user = db.get_user(user_id)
+        
+        first_name = user[2] if len(user) > 2 else "کاربر"
+        username = user[1] if len(user) > 1 and user[1] else "ندارد"
+        
+        text = f"💳 **رسید سفارش #{order_id}**\n\n"
+        text += f"👤 {first_name} (@{username})\n"
+        text += f"💰 {final_price:,.0f} تومان\n\n"
+        
+        for item in items:
+            text += f"• {item['product']} ({item['pack']}) - {item['quantity']} عدد\n"
+        
+        text += f"\n📅 {format_jalali_datetime(created_at)}"
+        
+        if receipt_photo:
+            await update.message.reply_photo(
+                receipt_photo,
+                caption=text,
+                parse_mode='Markdown',
+                reply_markup=payment_confirmation_keyboard(order_id)
+            )
+        else:
+            await update.message.reply_text(
+                text,
+                parse_mode='Markdown',
+                reply_markup=payment_confirmation_keyboard(order_id)
+            )
 
 
 async def handle_photos(update: Update, context):
@@ -177,7 +357,6 @@ async def scheduled_cleanup(context: ContextTypes.DEFAULT_TYPE):
         report = db.cleanup_old_orders(days_old=7)
         
         if report['success'] and report['deleted_count'] > 0:
-            # ارسال گزارش به ادمین
             message = (
                 "🤖 **گزارش پاکسازی خودکار**\n\n"
                 f"🗑 تعداد حذف شده: {report['deleted_count']} سفارش\n"
@@ -199,7 +378,6 @@ async def scheduled_cleanup(context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"❌ خطا در پاکسازی خودکار: {e}")
         
-        # اطلاع به ادمین در صورت خطا
         try:
             await context.bot.send_message(
                 ADMIN_ID,
@@ -353,7 +531,6 @@ def main():
         confirm_order, reject_order, confirm_payment, reject_payment,
         remove_item_from_order, reject_full_order, back_to_order_review,
         confirm_modified_order,
-        # 🆕 توابع جدید
         handle_continue_payment,
         handle_delete_order
     )
@@ -433,7 +610,7 @@ def main():
     except Exception as e:
         logger.warning(f"⚠️ خطا در راه‌اندازی بکاپ خودکار: {e}")
     
-    # 🆕 راه‌اندازی پاکسازی خودکار روزانه (هر روز ساعت 3:30 صبح)
+    # 🆕 راه‌اندازی پاکسازی خودکار روزانه
     try:
         if hasattr(application, 'job_queue') and application.job_queue is not None:
             application.job_queue.run_daily(
@@ -501,214 +678,4 @@ def main():
     )
     
     edit_product_photo_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(edit_product_photo_start, pattern="^edit_prod_photo:")],
-        states={
-            EDIT_PRODUCT_PHOTO: [MessageHandler(filters.PHOTO, edit_product_photo_received)],
-        },
-        fallbacks=[MessageHandler(filters.Regex("^❌ لغو$"), admin_start)],
-    )
-    
-    edit_pack_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(edit_pack_start, pattern="^edit_pack:")],
-        states={
-            EDIT_PACK_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_pack_name_received)],
-            EDIT_PACK_QUANTITY: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_pack_quantity_received)],
-            EDIT_PACK_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_pack_price_received)],
-        },
-        fallbacks=[MessageHandler(filters.Regex("^❌ لغو$"), admin_start)],
-    )
-    
-    create_discount_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(create_discount_start, pattern="^create_discount$")],
-        states={
-            DISCOUNT_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, discount_code_received)],
-            DISCOUNT_TYPE: [CallbackQueryHandler(discount_type_selected, pattern="^discount_type:")],
-            DISCOUNT_VALUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, discount_value_received)],
-            DISCOUNT_MIN_PURCHASE: [MessageHandler(filters.TEXT & ~filters.COMMAND, discount_min_purchase_received)],
-            DISCOUNT_MAX: [MessageHandler(filters.TEXT & ~filters.COMMAND, discount_max_received)],
-            DISCOUNT_LIMIT: [MessageHandler(filters.TEXT & ~filters.COMMAND, discount_limit_received)],
-            DISCOUNT_START: [MessageHandler(filters.TEXT & ~filters.COMMAND, discount_start_received)],
-            DISCOUNT_END: [MessageHandler(filters.TEXT & ~filters.COMMAND, discount_end_received)],
-        },
-        fallbacks=[MessageHandler(filters.Regex("^❌ لغو$"), admin_start)],
-    )
-    
-    broadcast_conv = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("^📢 پیام همگانی$"), broadcast_start)],
-        states={
-            BROADCAST_MESSAGE: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, broadcast_message_received),
-                MessageHandler(filters.PHOTO, broadcast_message_received),
-                MessageHandler(filters.VIDEO, broadcast_message_received),
-            ],
-        },
-        fallbacks=[MessageHandler(filters.Regex("^❌ لغو$"), admin_start)],
-    )
-    
-    user_discount_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(apply_discount_start, pattern="^apply_discount$")],
-        states={
-            ENTER_DISCOUNT_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, discount_code_entered)],
-        },
-        fallbacks=[MessageHandler(filters.Regex("^❌ لغو$"), user_start)],
-    )
-    
-    edit_item_qty_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(edit_item_quantity_start, pattern="^edit_item_qty:")],
-        states={
-            EDIT_ITEM_QUANTITY: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_item_quantity_received)],
-            EDIT_ITEM_NOTES: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, edit_item_notes_received),
-                CallbackQueryHandler(skip_item_notes, pattern="^skip_notes:"),
-                CallbackQueryHandler(cancel_item_edit, pattern="^cancel_edit:")
-            ],
-        },
-        fallbacks=[MessageHandler(filters.Regex("^❌ لغو$"), admin_start)],
-    )
-    
-    finalize_order_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(finalize_order_start, pattern="^finalize_order$")],
-        states={
-            FULL_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, full_name_received)],
-            ADDRESS_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, address_text_received)],
-            PHONE_NUMBER: [MessageHandler(filters.TEXT & ~filters.COMMAND, phone_number_received)],
-        },
-        fallbacks=[MessageHandler(filters.Regex("^❌ لغو$"), user_start)],
-    )
-    
-    edit_address_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(edit_address, pattern="^edit_address$")],
-        states={
-            FULL_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, full_name_received)],
-            ADDRESS_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, address_text_received)],
-            PHONE_NUMBER: [MessageHandler(filters.TEXT & ~filters.COMMAND, phone_number_received)],
-        },
-        fallbacks=[MessageHandler(filters.Regex("^❌ لغو$"), user_start)],
-    )
-    
-    edit_user_info_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(edit_user_info_for_order, pattern="^edit_user_info$")],
-        states={
-            FULL_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, full_name_received)],
-            ADDRESS_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, address_text_received)],
-            PHONE_NUMBER: [MessageHandler(filters.TEXT & ~filters.COMMAND, phone_number_received)],
-        },
-        fallbacks=[MessageHandler(filters.Regex("^❌ لغو$"), user_start)],
-    )
-    
-    final_edit_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(final_edit_order, pattern="^final_edit$")],
-        states={
-            FULL_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, full_name_received)],
-            ADDRESS_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, address_text_received)],
-            PHONE_NUMBER: [MessageHandler(filters.TEXT & ~filters.COMMAND, phone_number_received)],
-        },
-        fallbacks=[MessageHandler(filters.Regex("^❌ لغو$"), user_start)],
-    )
-    
-    # اضافه کردن handler ها
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(add_product_conv)
-    application.add_handler(add_pack_conv)
-    application.add_handler(edit_product_name_conv)
-    application.add_handler(edit_product_desc_conv)
-    application.add_handler(edit_product_photo_conv)
-    application.add_handler(edit_pack_conv)
-    application.add_handler(create_discount_conv)
-    application.add_handler(broadcast_conv)
-    application.add_handler(user_discount_conv)
-    application.add_handler(edit_item_qty_conv)
-    application.add_handler(finalize_order_conv)
-    application.add_handler(edit_address_conv)
-    application.add_handler(edit_user_info_conv)
-    application.add_handler(final_edit_conv)
-    
-    application.add_handler(CallbackQueryHandler(handle_dashboard_callback, pattern="^dash:"))
-    
-    # CallbackQuery هندلرها
-    application.add_handler(CallbackQueryHandler(handle_pack_selection, pattern="^select_pack:"))
-    application.add_handler(CallbackQueryHandler(back_to_packs, pattern="^back_to_packs:"))
-    application.add_handler(CallbackQueryHandler(edit_product_menu, pattern="^edit_product:"))
-    application.add_handler(CallbackQueryHandler(view_packs_with_edit, pattern="^view_packs:"))
-    application.add_handler(CallbackQueryHandler(get_channel_link, pattern="^send_to_channel:"))
-    application.add_handler(CallbackQueryHandler(edit_in_channel, pattern="^edit_in_channel:"))
-    application.add_handler(CallbackQueryHandler(delete_product, pattern="^delete_product:"))
-    application.add_handler(CallbackQueryHandler(delete_pack_confirm, pattern="^delete_pack:"))
-    application.add_handler(CallbackQueryHandler(back_to_product, pattern="^back_to_product:"))
-    
-    application.add_handler(CallbackQueryHandler(manage_packs_menu, pattern="^manage_packs:"))
-    application.add_handler(CallbackQueryHandler(confirm_delete_pack, pattern="^confirm_delete_pack:"))
-    application.add_handler(CallbackQueryHandler(delete_pack_final, pattern="^delete_pack_final:"))
-    
-    application.add_handler(CallbackQueryHandler(view_cart, pattern="^view_cart$"))
-    application.add_handler(CallbackQueryHandler(remove_from_cart, pattern="^remove_cart:"))
-    application.add_handler(CallbackQueryHandler(clear_cart, pattern="^clear_cart$"))
-    application.add_handler(CallbackQueryHandler(cart_increase, pattern=r"^cart_increase:\d+$"))
-    application.add_handler(CallbackQueryHandler(cart_decrease, pattern=r"^cart_decrease:\d+$"))
-    
-    application.add_handler(CallbackQueryHandler(handle_shipping_selection, pattern="^ship_"))
-    application.add_handler(CallbackQueryHandler(final_confirm_order, pattern="^final_confirm$"))
-    application.add_handler(CallbackQueryHandler(use_old_address, pattern="^use_old_address$"))
-    application.add_handler(CallbackQueryHandler(use_new_address, pattern="^use_new_address$"))
-    application.add_handler(CallbackQueryHandler(confirm_user_info, pattern="^confirm_user_info$"))
-    
-    application.add_handler(CallbackQueryHandler(confirm_order, pattern="^confirm_order:"))
-    application.add_handler(CallbackQueryHandler(reject_order, pattern="^reject_order:"))
-    application.add_handler(CallbackQueryHandler(remove_item_from_order, pattern="^remove_item:"))
-    application.add_handler(CallbackQueryHandler(reject_full_order, pattern="^reject_full:"))
-    application.add_handler(CallbackQueryHandler(back_to_order_review, pattern="^back_to_order:"))
-    application.add_handler(CallbackQueryHandler(confirm_modified_order, pattern="^confirm_modified:"))
-    application.add_handler(CallbackQueryHandler(confirm_payment, pattern="^confirm_payment:"))
-    application.add_handler(CallbackQueryHandler(reject_payment, pattern="^reject_payment:"))
-    
-    # 🆕 Handler های جدید
-    application.add_handler(CallbackQueryHandler(handle_continue_payment, pattern="^continue_payment:"))
-    application.add_handler(CallbackQueryHandler(handle_delete_order, pattern="^delete_order:"))
-    
-    application.add_handler(CallbackQueryHandler(increase_item_quantity, pattern="^increase_item:"))
-    application.add_handler(CallbackQueryHandler(decrease_item_quantity, pattern="^decrease_item:"))
-    
-    application.add_handler(CallbackQueryHandler(list_discounts, pattern="^list_discounts$"))
-    application.add_handler(CallbackQueryHandler(view_discount, pattern="^view_discount:"))
-    application.add_handler(CallbackQueryHandler(toggle_discount, pattern="^toggle_discount:"))
-    application.add_handler(CallbackQueryHandler(delete_discount, pattern="^delete_discount:"))
-    
-    application.add_handler(CallbackQueryHandler(confirm_broadcast, pattern="^confirm_broadcast$"))
-    application.add_handler(CallbackQueryHandler(cancel_broadcast, pattern="^cancel_broadcast$"))
-    
-    application.add_handler(CallbackQueryHandler(handle_analytics_report, pattern="^analytics:"))
-    
-    # Message هندلرها
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_messages))
-    application.add_handler(MessageHandler(filters.PHOTO, handle_photos))
-    
-    application.add_error_handler(error_handler)
-    
-    # شروع ربات
-    logger.info("🤖 ربات با قابلیت‌های جدید شروع به کار کرد!")
-    logger.info("✅ Health Check فعال")
-    logger.info("✅ Enhanced Error Handler فعال")
-    logger.info("✅ Cache Manager فعال")
-    logger.info("✅ Admin Dashboard فعال")
-    logger.info("✅ تاریخ شمسی برای سفارشات فعال")
-    logger.info("✅ دکمه‌های دینامیک برای سفارشات فعال")
-    logger.info("✅ قابلیت حذف سفارش توسط کاربر فعال")
-    logger.info("✅ پاکسازی خودکار روزانه فعال (ساعت 3:30 صبح)")
-    logger.info("✅ دکمه پاکسازی دستی برای ادمین فعال")
-    
-    try:
-        application.run_polling(allowed_updates=Update.ALL_TYPES)
-    except KeyboardInterrupt:
-        logger.info("🛑 Received keyboard interrupt")
-    except Exception as e:
-        logger.error(f"❌ Fatal error: {e}", exc_info=True)
-    finally:
-        try:
-            db.close()
-        except:
-            pass
-        log_shutdown()
-
-
-if __name__ == '__main__':
-    main()
+        entry_points=[CallbackQueryHandler(edit_product_photo_
