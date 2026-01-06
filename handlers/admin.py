@@ -1,6 +1,6 @@
 """
 هندلرهای مربوط به پنل ادمین
-✅ بروزرسانی شده با Cache Invalidation
+
 """
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
@@ -303,7 +303,10 @@ async def view_packs(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def get_channel_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ارسال محصول به کانال + ذخیره message_id"""
+    """
+    ارسال محصول به کانال + ذخیره message_id
+    ✅ 🆕 اضافه شده: نمایش دکمه ناموجود برای محصولات بدون پک
+    """
     query = update.callback_query
     await query.answer()
     
@@ -331,41 +334,53 @@ async def get_channel_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text("❌ محصول یافت نشد.")
         return
     
-    if not packs:
-        await query.message.reply_text("⚠️ ابتدا حداقل یک پک برای این محصول تعریف کنید.")
-        return
-    
     _, name, desc, photo_id, *_ = product
     
     caption = f"🏷 **{name}**\n\n"
     caption += f"{desc}\n\n"
-    caption += "📦 **پک‌های موجود:**\n\n"
     
-    pack_names = ["اول", "دوم", "سوم", "چهارم", "پنجم", "ششم", "هفتم", "هشتم", "نهم", "دهم"]
-    
-    for idx, pack in enumerate(packs):
-        _, _, pack_name, quantity, price = pack
-        pack_num = pack_names[idx] if idx < len(pack_names) else f"{idx + 1}"
-        caption += f"📦 پک {pack_num}: {pack_name} - {price:,.0f} تومان\n"
-    
-    caption += "\n💎 برای سفارش روی دکمه پک مورد نظر کلیک کنید 👇"
-    
-    keyboard = []
-    
-    for idx, pack in enumerate(packs):
-        pack_id, prod_id, pack_name, quantity, price = pack
-        pack_num = pack_names[idx] if idx < len(pack_names) else f"{idx + 1}"
-        button_text = f"انتخاب پک {pack_num}"
+    # 🔴 🆕 چک کردن پک‌ها - اگه نباشه دکمه ناموجود نشون بده
+    if not packs or len(packs) == 0:
+        # هیچ پکی وجود ندارد - محصول ناموجود
+        caption += "⚠️ **متأسفانه این محصول موقتاً ناموجود است**\n\n"
+        caption += "💡 برای اطلاع از موجود شدن با ما در تماس باشید:\n"
+        caption += f"📞 @{CHANNEL_USERNAME}"
+        
+        # دکمه ناموجود
+        keyboard = [
+            [InlineKeyboardButton("❌ ناموجود", callback_data="out_of_stock")]
+        ]
+        
+    else:
+        # پک دارد - نمایش عادی
+        caption += "📦 **پک‌های موجود:**\n\n"
+        
+        pack_names = ["اول", "دوم", "سوم", "چهارم", "پنجم", "ششم", "هفتم", "هشتم", "نهم", "دهم"]
+        
+        for idx, pack in enumerate(packs):
+            _, _, pack_name, quantity, price = pack
+            pack_num = pack_names[idx] if idx < len(pack_names) else f"{idx + 1}"
+            caption += f"📦 پک {pack_num}: {pack_name} - {price:,.0f} تومان\n"
+        
+        caption += "\n💎 برای سفارش روی دکمه پک مورد نظر کلیک کنید 👇"
+        
+        # دکمه‌های پک‌ها
+        keyboard = []
+        
+        for idx, pack in enumerate(packs):
+            pack_id, prod_id, pack_name, quantity, price = pack
+            pack_num = pack_names[idx] if idx < len(pack_names) else f"{idx + 1}"
+            button_text = f"انتخاب پک {pack_num}"
+            keyboard.append([InlineKeyboardButton(
+                button_text, 
+                callback_data=f"select_pack:{product_id}:{pack_id}"
+            )])
+        
+        bot_username = context.bot.username
         keyboard.append([InlineKeyboardButton(
-            button_text, 
-            callback_data=f"select_pack:{product_id}:{pack_id}"
+            "🛒 مشاهده سبد خرید من",
+            url=f"https://t.me/{bot_username}?start=view_cart"
         )])
-    
-    bot_username = context.bot.username
-    keyboard.append([InlineKeyboardButton(
-        "🛒 مشاهده سبد خرید من",
-        url=f"https://t.me/{bot_username}?start=view_cart"
-    )])
     
     try:
         sent_message = None
@@ -394,7 +409,8 @@ async def get_channel_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.message.reply_text(
                     f"✅ محصول با موفقیت در کانال منتشر شد!\n\n"
                     f"🔗 @{CHANNEL_USERNAME}\n"
-                    f"📝 Message ID: {message_id} (ذخیره شد)"
+                    f"📝 Message ID: {message_id} (ذخیره شد)\n\n"
+                    f"{'⚠️ توجه: این محصول بدون پک ارسال شد (ناموجود)' if not packs else ''}"
                 )
             else:
                 await query.message.reply_text(
