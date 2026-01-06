@@ -1,8 +1,6 @@
 """
 مدیریت دیتابیس با SQLite
-✅ FIXED: Race Condition در add_to_cart
-✅ FIXED: حذف clean_invalid_cart_items از get_cart
-✅ FIXED: اضافه کردن UNIQUE constraint
+
 """
 import sqlite3
 import json
@@ -16,8 +14,6 @@ from config import DATABASE_NAME
 import logging
 
 logger = logging.getLogger(__name__)
-
-# ❌ REMOVED: _cart_lock دیگه نیاز نیست چون از UNIQUE constraint استفاده میکنیم
 
 
 class DatabaseConnectionPool:
@@ -110,6 +106,20 @@ class Database:
         """دریافت connection برای thread فعلی"""
         return self.pool.get_connection()
     
+    def _sanitize_text_input(self, text: str, max_length: int = None) -> str:
+        """
+        ✅ NEW: پاکسازی ورودی متنی
+        """
+        if text is None:
+            return None
+        
+        text = text.strip()
+        
+        if max_length and len(text) > max_length:
+            text = text[:max_length]
+        
+        return text
+    
     @contextmanager
     def transaction(self):
         """Context Manager برای تراکنش‌های دیتابیس"""
@@ -143,7 +153,6 @@ class Database:
         """
         حذف آیتم‌های نامعتبر از سبد
         ✅ FIX: این تابع دیگه خودکار صدا زده نمیشه
-        فقط موقع نیاز (مثلاً وقتی پک حذف میشه) باید صدا بزنیش
         """
         try:
             with self.transaction() as cursor:
@@ -208,7 +217,6 @@ class Database:
             )
         """)
         
-        # ✅ FIX: اضافه کردن UNIQUE constraint برای جلوگیری از duplicate
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS cart (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -270,6 +278,18 @@ class Database:
             )
         """)
         
+        # ✅ NEW: جدول جدید برای ذخیره تخفیف‌های موقت
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS temp_discount_codes (
+                user_id INTEGER PRIMARY KEY,
+                discount_code TEXT NOT NULL,
+                discount_amount REAL NOT NULL,
+                applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                expires_at TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+            )
+        """)
+        
         conn.commit()
         self._create_indexes()
         self._migrate_existing_orders()
@@ -311,10 +331,10 @@ class Database:
             "CREATE INDEX IF NOT EXISTS idx_orders_status_created ON orders(status, created_at DESC)",
             "CREATE INDEX IF NOT EXISTS idx_orders_expires_at ON orders(expires_at)",
             "CREATE INDEX IF NOT EXISTS idx_cart_user_id ON cart(user_id)",
-            # ✅ FIX: اضافه کردن UNIQUE index برای cart
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_cart_user_pack ON cart(user_id, pack_id)",
             "CREATE INDEX IF NOT EXISTS idx_discount_code ON discount_codes(code)",
             "CREATE INDEX IF NOT EXISTS idx_packs_product_id ON packs(product_id)",
+            "CREATE INDEX IF NOT EXISTS idx_temp_discount_user ON temp_discount_codes(user_id)",
         ]
         
         for index_sql in indexes:
@@ -396,8 +416,6 @@ class Database:
         with self.transaction() as cursor:
             cursor.execute("DELETE FROM products WHERE id = ?", (product_id,))
             cursor.execute("DELETE FROM packs WHERE product_id = ?", (product_id,))
-            
-            # ✅ FIX: پاکسازی cart items مرتبط با این محصول
             cursor.execute("DELETE FROM cart WHERE product_id = ?", (product_id,))
         
         self._invalidate_cache(f"product:{product_id}")
@@ -442,7 +460,6 @@ class Database:
             product_id = pack[1]
             with self.transaction() as cursor:
                 cursor.execute("DELETE FROM packs WHERE id = ?", (pack_id,))
-                # ✅ FIX: پاکسازی cart items مرتبط با این پک
                 cursor.execute("DELETE FROM cart WHERE pack_id = ?", (pack_id,))
             
             self._invalidate_cache(f"packs:{product_id}")
@@ -455,21 +472,37 @@ class Database:
                          (user_id, username, first_name))
     
     def update_user_info(self, user_id: int, phone=None, landline_phone=None, address=None, full_name=None, shop_name=None):
-        conn = self._get_conn()
-        cursor = conn.cursor()
+        """
+        ✅ FIXED: بروزرسانی یکجا برای جلوگیری از race condition
+        """
+        updates = []
+        params = []
         
-        if phone:
-            cursor.execute("UPDATE users SET phone = ? WHERE user_id = ?", (phone, user_id))
-        if landline_phone:
-            cursor.execute("UPDATE users SET landline_phone = ? WHERE user_id = ?", (landline_phone, user_id))
-        if address:
-            cursor.execute("UPDATE users SET address = ? WHERE user_id = ?", (address, user_id))
-        if full_name:
-            cursor.execute("UPDATE users SET full_name = ? WHERE user_id = ?", (full_name, user_id))
-        if shop_name:
-            cursor.execute("UPDATE users SET shop_name = ? WHERE user_id = ?", (shop_name, user_id))
+        if phone is not None:
+            updates.append("phone = ?")
+            params.append(self._sanitize_text_input(phone, 20))
+        if landline_phone is not None:
+            updates.append("landline_phone = ?")
+            params.append(self._sanitize_text_input(landline_phone, 20))
+        if address is not None:
+            updates.append("address = ?")
+            params.append(self._sanitize_text_input(address, 500))
+        if full_name is not None:
+            updates.append("full_name = ?")
+            params.append(self._sanitize_text_input(full_name, 100))
+        if shop_name is not None:
+            updates.append("shop_name = ?")
+            params.append(self._sanitize_text_input(shop_name, 100))
         
-        conn.commit()
+        if not updates:
+            return
+        
+        params.append(user_id)
+        query = f"UPDATE users SET {', '.join(updates)} WHERE user_id = ?"
+        
+        with self.transaction() as cursor:
+            cursor.execute(query, params)
+        
         self._invalidate_cache(f"user:{user_id}")
     
     def get_user(self, user_id: int):
@@ -488,8 +521,7 @@ class Database:
     
     def add_to_cart(self, user_id: int, product_id: int, pack_id: int, quantity: int = 1):
         """
-        ✅ FIXED: استفاده از INSERT ... ON CONFLICT برای حل Race Condition
-        دیگه نیازی به Lock نیست!
+        ✅ FIXED: استفاده از INSERT ... ON CONFLICT
         """
         try:
             pack = self.get_pack(pack_id)
@@ -501,7 +533,6 @@ class Database:
             actual_quantity = quantity * pack_quantity
             
             with self.transaction() as cursor:
-                # ✅ FIX: استفاده از UPSERT
                 cursor.execute("""
                     INSERT INTO cart (user_id, product_id, pack_id, quantity) 
                     VALUES (?, ?, ?, ?)
@@ -517,10 +548,7 @@ class Database:
             raise
     
     def get_cart(self, user_id: int):
-        """
-        ✅ FIXED: حذف clean_invalid_cart_items
-        پاکسازی فقط موقع نیاز انجام میشه (مثلاً وقتی پک حذف میشه)
-        """
+        """✅ FIXED: حذف clean_invalid_cart_items"""
         conn = self._get_conn()
         cursor = conn.cursor()
         cursor.execute("""
@@ -606,7 +634,7 @@ class Database:
         return cursor.fetchall()
     
     def get_user_orders(self, user_id: int):
-        """دریافت سفارشات کاربر - بدون rejected و expired"""
+        """دریافت سفارشات کاربر"""
         conn = self._get_conn()
         cursor = conn.cursor()
     
@@ -624,7 +652,7 @@ class Database:
         return cursor.fetchall()
     
     def delete_order(self, order_id: int):
-        """حذف سفارش توسط کاربر"""
+        """حذف سفارش"""
         try:
             with self.transaction() as cursor:
                 cursor.execute("DELETE FROM orders WHERE id = ?", (order_id,))
@@ -738,6 +766,91 @@ class Database:
     def delete_discount(self, discount_id: int):
         with self.transaction() as cursor:
             cursor.execute("DELETE FROM discount_codes WHERE id = ?", (discount_id,))
+    
+    # ==================== ✅ NEW: تخفیف‌های موقت ====================
+    
+    def save_temp_discount(self, user_id: int, discount_code: str, discount_amount: float):
+        """
+        ذخیره کد تخفیف موقت برای کاربر
+        """
+        expires_at = datetime.now() + timedelta(hours=1)
+        
+        try:
+            with self.transaction() as cursor:
+                cursor.execute("""
+                    INSERT INTO temp_discount_codes (user_id, discount_code, discount_amount, expires_at)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(user_id) DO UPDATE SET
+                        discount_code = excluded.discount_code,
+                        discount_amount = excluded.discount_amount,
+                        applied_at = CURRENT_TIMESTAMP,
+                        expires_at = excluded.expires_at
+                """, (user_id, discount_code, discount_amount, expires_at))
+            
+            logger.info(f"✅ Temp discount saved for user {user_id}: {discount_code}")
+        
+        except Exception as e:
+            logger.error(f"❌ Error saving temp discount: {e}")
+    
+    def get_temp_discount(self, user_id: int) -> Optional[dict]:
+        """
+        دریافت کد تخفیف موقت کاربر
+        """
+        try:
+            conn = self._get_conn()
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                SELECT discount_code, discount_amount, expires_at
+                FROM temp_discount_codes
+                WHERE user_id = ? AND datetime(expires_at) > datetime('now')
+            """, (user_id,))
+            
+            result = cursor.fetchone()
+            
+            if result:
+                return {
+                    'code': result[0],
+                    'amount': result[1],
+                    'expires_at': result[2]
+                }
+            
+            return None
+        
+        except Exception as e:
+            logger.error(f"❌ Error getting temp discount: {e}")
+            return None
+    
+    def clear_temp_discount(self, user_id: int):
+        """پاک کردن تخفیف موقت بعد از استفاده"""
+        try:
+            with self.transaction() as cursor:
+                cursor.execute("DELETE FROM temp_discount_codes WHERE user_id = ?", (user_id,))
+            
+            logger.info(f"✅ Temp discount cleared for user {user_id}")
+        
+        except Exception as e:
+            logger.error(f"❌ Error clearing temp discount: {e}")
+    
+    def cleanup_expired_temp_discounts(self):
+        """پاکسازی تخفیف‌های موقت منقضی شده"""
+        try:
+            with self.transaction() as cursor:
+                cursor.execute("""
+                    DELETE FROM temp_discount_codes
+                    WHERE datetime(expires_at) < datetime('now')
+                """)
+                
+                deleted_count = cursor.rowcount
+                
+                if deleted_count > 0:
+                    logger.info(f"🧹 {deleted_count} expired temp discounts cleaned up")
+            
+            return deleted_count
+        
+        except Exception as e:
+            logger.error(f"❌ Error cleaning up temp discounts: {e}")
+            return 0
     
     # ==================== آمار ====================
     
