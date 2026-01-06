@@ -609,14 +609,27 @@ class Database:
         return cursor.fetchall()
     
     def get_user_orders(self, user_id: int):
-        """🆕 دریافت سفارشات کاربر - شامل منقضی شده‌ها"""
+        """
+        🆕 دریافت سفارشات کاربر - بدون rejected و expired
+        ✅ FIX: فیلتر خودکار سفارشات منقضی شده و رد شده
+        """
         conn = self._get_conn()
         cursor = conn.cursor()
+    
+        # 🔥 فیلتر کردن سفارشات:
+        # 1. حذف سفارشات با status = 'rejected'
+        # 2. حذف سفارشات منقضی شده (expired)
         cursor.execute("""
             SELECT * FROM orders 
             WHERE user_id = ? 
+            AND status != 'rejected'
+            AND (
+                status IN ('payment_confirmed', 'confirmed')
+                OR datetime(expires_at) > datetime('now')
+            )
             ORDER BY created_at DESC
         """, (user_id,))
+    
         return cursor.fetchall()
     
     def delete_order(self, order_id: int):
