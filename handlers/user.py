@@ -100,6 +100,7 @@ async def _update_cart_item_quantity(update: Update, context: ContextTypes.DEFAU
 async def _refresh_cart_display(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     بروزرسانی نمایش سبد خرید
+    ✅ FIX: حفظ تخفیف بعد از +/-
     
     Returns:
         bool: آیا سبد خالی است؟
@@ -112,25 +113,76 @@ async def _refresh_cart_display(update: Update, context: ContextTypes.DEFAULT_TY
     
     if not cart:
         await query.edit_message_text("✅ سبد خرید شما خالی شد.")
+        # پاک کردن تخفیف اگه سبد خالی شد
+        context.user_data.pop('applied_discount_code', None)
+        context.user_data.pop('discount_amount', None)
+        context.user_data.pop('discount_id', None)
         return True
     
-    text = "🛒 سبد خرید شما:\n\n"
+    # محاسبه جمع کل
     total_price = 0
-    
     for item in cart:
         cart_id_item, product_name, pack_name, pack_qty, pack_price, item_qty = item
         
         unit_price = pack_price / pack_qty
         item_total = unit_price * item_qty
         total_price += item_total
+    
+    # ✅ FIX: بررسی وجود تخفیف و محاسبه مجدد
+    discount_code = context.user_data.get('applied_discount_code')
+    discount_amount = 0
+    
+    if discount_code:
+        discount = db.get_discount(discount_code)
+        if discount:
+            disc_type = discount[2]
+            value = discount[3]
+            min_purchase = discount[4]
+            max_discount = discount[5]
+            
+            # بررسی اینکه هنوز واجد شرایط هست
+            if total_price >= min_purchase:
+                if disc_type == 'percentage':
+                    discount_amount = total_price * (value / 100)
+                    if max_discount and discount_amount > max_discount:
+                        discount_amount = max_discount
+                else:
+                    discount_amount = value
+                
+                # بروزرسانی مقدار تخفیف
+                context.user_data['discount_amount'] = discount_amount
+            else:
+                # مبلغ کمتر از حداقل شد - حذف تخفیف
+                context.user_data.pop('applied_discount_code', None)
+                context.user_data.pop('discount_amount', None)
+                context.user_data.pop('discount_id', None)
+                discount_code = None
+    
+    # ساخت متن سبد
+    text = "🛒 سبد خرید شما:\n\n"
+    
+    for item in cart:
+        cart_id_item, product_name, pack_name, pack_qty, pack_price, item_qty = item
+        
+        unit_price = pack_price / pack_qty
+        item_total = unit_price * item_qty
         
         text += f"🏷 {product_name}\n"
         text += f"📦 {pack_name} ({item_qty} عدد)\n"
         text += f"💰 {item_total:,.0f} تومان\n\n"
     
-    text += f"💳 جمع کل: {total_price:,.0f} تومان"
+    text += f"💵 جمع کل: {total_price:,.0f} تومان\n"
     
-    await query.edit_message_text(text, reply_markup=cart_keyboard(cart))
+    # ✅ FIX: نمایش تخفیف اگه وجود داشت
+    if discount_code and discount_amount > 0:
+        final_price = total_price - discount_amount
+        text += f"🎁 تخفیف ({discount_code}): {discount_amount:,.0f} تومان\n"
+        text += f"━━━━━━━━━━━━━━\n"
+        text += f"💳 **مبلغ نهایی: {final_price:,.0f} تومان**"
+    else:
+        text += f"💳 جمع کل: {total_price:,.0f} تومان"
+    
+    await query.edit_message_text(text, reply_markup=cart_keyboard(cart), parse_mode='Markdown')
     return False
 
 
