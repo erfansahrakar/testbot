@@ -340,7 +340,8 @@ def main():
         use_new_address, handle_pack_selection, view_cart,
         remove_from_cart, clear_cart, handle_shipping_selection,
         final_confirm_order, final_edit_order, edit_address,
-        back_to_packs, user_start, confirm_user_info, edit_user_info_for_order
+        back_to_packs, user_start, confirm_user_info, edit_user_info_for_order,
+        cart_increase, cart_decrease
     )
     
     from handlers.user_discount import (
@@ -642,6 +643,8 @@ def main():
     application.add_handler(CallbackQueryHandler(view_cart, pattern="^view_cart$"))
     application.add_handler(CallbackQueryHandler(remove_from_cart, pattern="^remove_cart:"))
     application.add_handler(CallbackQueryHandler(clear_cart, pattern="^clear_cart$"))
+    application.add_handler(CallbackQueryHandler(cart_increase, pattern=r"^cart_increase:\d+$"))
+    application.add_handler(CallbackQueryHandler(cart_decrease, pattern=r"^cart_decrease:\d+$"))
     
     application.add_handler(CallbackQueryHandler(handle_shipping_selection, pattern="^ship_"))
     application.add_handler(CallbackQueryHandler(final_confirm_order, pattern="^final_confirm$"))
