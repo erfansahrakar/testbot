@@ -1,5 +1,6 @@
 """
 مدیریت تخفیف‌ها
+
 """
 from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler
@@ -19,7 +20,107 @@ from keyboards import (
     admin_main_keyboard
 )
 from datetime import datetime
+import logging
 
+logger = logging.getLogger(__name__)
+
+
+# ==================== ✅ NEW: Helper Functions ====================
+
+def calculate_discount(total_price: float, discount_code: str, db) -> tuple:
+    """
+    محاسبه تخفیف با چک Division by Zero و Validation کامل
+    
+    Args:
+        total_price: مبلغ کل خرید
+        discount_code: کد تخفیف
+        db: instance دیتابیس
+    
+    Returns:
+        (discount_amount, final_price, error_message)
+    """
+    # ✅ FIX: چک مبلغ کل
+    if total_price <= 0:
+        return 0, total_price, "❌ مبلغ خرید نامعتبر است!"
+    
+    discount_info = db.get_discount(discount_code)
+    
+    if not discount_info:
+        return 0, total_price, "❌ کد تخفیف نامعتبر است!"
+    
+    # استخراج اطلاعات
+    discount_id, code, discount_type, value, min_purchase, max_discount, usage_limit, used_count, start_date, end_date, is_active, created_at = discount_info
+    
+    # چک فعال بودن
+    if not is_active:
+        return 0, total_price, "❌ این کد تخفیف غیرفعال است!"
+    
+    # چک تاریخ‌ها
+    now = datetime.now()
+    
+    if start_date:
+        try:
+            start_dt = datetime.fromisoformat(start_date)
+            if now < start_dt:
+                return 0, total_price, "❌ این کد تخفیف هنوز فعال نشده است!"
+        except ValueError:
+            logger.error(f"Invalid start_date format: {start_date}")
+    
+    if end_date:
+        try:
+            end_dt = datetime.fromisoformat(end_date)
+            if now > end_dt:
+                return 0, total_price, "❌ این کد تخفیف منقضی شده است!"
+        except ValueError:
+            logger.error(f"Invalid end_date format: {end_date}")
+    
+    # چک محدودیت استفاده
+    if usage_limit and used_count >= usage_limit:
+        return 0, total_price, "❌ این کد تخفیف به حداکثر تعداد استفاده رسیده است!"
+    
+    # ✅ FIX: چک حداقل خرید با مقایسه امن
+    if min_purchase > 0 and total_price < min_purchase:
+        return 0, total_price, f"❌ حداقل خرید برای این کد {min_purchase:,.0f} تومان است!"
+    
+    # محاسبه تخفیف
+    discount_amount = 0
+    
+    if discount_type == 'percentage':
+        # ✅ FIX: چک Division by Zero
+        if value <= 0 or value > 100:
+            logger.error(f"Invalid percentage value: {value}")
+            return 0, total_price, "❌ درصد تخفیف نامعتبر است!"
+        
+        # محاسبه درصدی
+        discount_amount = total_price * (value / 100)
+        
+        # اعمال حداکثر تخفیف
+        if max_discount and discount_amount > max_discount:
+            discount_amount = max_discount
+    
+    else:  # fixed amount
+        # ✅ FIX: چک مبلغ ثابت
+        if value <= 0:
+            logger.error(f"Invalid fixed discount value: {value}")
+            return 0, total_price, "❌ مبلغ تخفیف نامعتبر است!"
+        
+        discount_amount = value
+        
+        # ✅ FIX: تخفیف نمی‌تونه بیشتر از کل باشه
+        if discount_amount > total_price:
+            discount_amount = total_price
+    
+    # ✅ FIX: محاسبه نهایی با رند کردن
+    final_price = round(total_price - discount_amount, 2)
+    
+    # ✅ FIX: جلوگیری از منفی شدن قیمت
+    if final_price < 0:
+        final_price = 0
+    
+    return discount_amount, final_price, None
+
+
+# ==================== Admin Handlers ====================
 
 async def discount_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """منوی مدیریت تخفیف‌ها"""
@@ -69,7 +170,7 @@ async def discount_code_received(update: Update, context: ContextTypes.DEFAULT_T
             error_msg,
             reply_markup=cancel_keyboard()
         )
-        return DISCOUNT_CODE  # دوباره بپرس
+        return DISCOUNT_CODE
     
     # بررسی تکراری نبودن
     db = context.bot_data['db']
@@ -104,13 +205,15 @@ async def discount_type_selected(update: Update, context: ContextTypes.DEFAULT_T
     if discount_type == "percentage":
         await query.message.reply_text(
             "💯 درصد تخفیف را وارد کنید:\n"
-            "مثال: 10 (برای 10 درصد)",
+            "مثال: 10 (برای 10 درصد)\n\n"
+            "⚠️ باید بین 1 تا 100 باشد",
             reply_markup=cancel_keyboard()
         )
     else:
         await query.message.reply_text(
             "💰 مبلغ تخفیف را به تومان وارد کنید:\n"
-            "مثال: 50000",
+            "مثال: 50000\n\n"
+            "⚠️ حداقل 1000 تومان",
             reply_markup=cancel_keyboard()
         )
     
@@ -118,7 +221,7 @@ async def discount_type_selected(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def discount_value_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """دریافت مقدار تخفیف - با اعتبارسنجی"""
+    """دریافت مقدار تخفیف - با اعتبارسنجی کامل"""
     if update.message.text == "❌ لغو":
         await update.message.reply_text("لغو شد.", reply_markup=admin_main_keyboard())
         return ConversationHandler.END
@@ -133,7 +236,8 @@ async def discount_value_received(update: Update, context: ContextTypes.DEFAULT_
         
         if not is_valid:
             await update.message.reply_text(
-                "❌ درصد تخفیف باید بین 1 تا 100 باشد!",
+                "❌ درصد تخفیف باید بین 1 تا 100 باشد!\n"
+                "لطفاً دوباره وارد کنید:",
                 reply_markup=cancel_keyboard()
             )
             return DISCOUNT_VALUE
@@ -168,6 +272,7 @@ async def discount_value_received(update: Update, context: ContextTypes.DEFAULT_
     )
     
     return DISCOUNT_MIN_PURCHASE
+
 
 async def discount_min_purchase_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """دریافت حداقل خرید - با اعتبارسنجی"""
@@ -217,6 +322,15 @@ async def discount_max_received(update: Update, context: ContextTypes.DEFAULT_TY
     
     try:
         max_discount = float(update.message.text.replace(',', ''))
+        
+        # ✅ Validation
+        if max_discount < 0:
+            await update.message.reply_text(
+                "❌ مبلغ نمی‌تواند منفی باشد!",
+                reply_markup=cancel_keyboard()
+            )
+            return DISCOUNT_MAX
+        
         context.user_data['discount_max'] = max_discount if max_discount > 0 else None
         
         await update.message.reply_text(
@@ -229,7 +343,10 @@ async def discount_max_received(update: Update, context: ContextTypes.DEFAULT_TY
         return DISCOUNT_LIMIT
         
     except ValueError:
-        await update.message.reply_text("❌ لطفاً یک عدد معتبر وارد کنید!")
+        await update.message.reply_text(
+            "❌ لطفاً یک عدد معتبر وارد کنید!",
+            reply_markup=cancel_keyboard()
+        )
         return DISCOUNT_MAX
 
 
@@ -241,6 +358,15 @@ async def discount_limit_received(update: Update, context: ContextTypes.DEFAULT_
     
     try:
         usage_limit = int(update.message.text)
+        
+        # ✅ Validation
+        if usage_limit < 0:
+            await update.message.reply_text(
+                "❌ تعداد نمی‌تواند منفی باشد!",
+                reply_markup=cancel_keyboard()
+            )
+            return DISCOUNT_LIMIT
+        
         context.user_data['discount_limit'] = usage_limit if usage_limit > 0 else None
         
         await update.message.reply_text(
@@ -253,7 +379,10 @@ async def discount_limit_received(update: Update, context: ContextTypes.DEFAULT_
         return DISCOUNT_START
         
     except ValueError:
-        await update.message.reply_text("❌ لطفاً یک عدد صحیح وارد کنید!")
+        await update.message.reply_text(
+            "❌ لطفاً یک عدد صحیح وارد کنید!",
+            reply_markup=cancel_keyboard()
+        )
         return DISCOUNT_LIMIT
 
 
@@ -275,7 +404,8 @@ async def discount_start_received(update: Update, context: ContextTypes.DEFAULT_
             await update.message.reply_text(
                 "❌ فرمت تاریخ نادرست است!\n"
                 "لطفاً به فرمت YYYY-MM-DD وارد کنید:\n"
-                "مثال: 2024-12-25"
+                "مثال: 2024-12-25",
+                reply_markup=cancel_keyboard()
             )
             return DISCOUNT_START
     
@@ -307,22 +437,33 @@ async def discount_end_received(update: Update, context: ContextTypes.DEFAULT_TY
             await update.message.reply_text(
                 "❌ فرمت تاریخ نادرست است!\n"
                 "لطفاً به فرمت YYYY-MM-DD وارد کنید:\n"
-                "مثال: 2024-12-31"
+                "مثال: 2024-12-31",
+                reply_markup=cancel_keyboard()
             )
             return DISCOUNT_END
     
     # ذخیره در دیتابیس
     db = context.bot_data['db']
-    db.create_discount(
-        code=context.user_data['discount_code'],
-        type=context.user_data['discount_type'],
-        value=context.user_data['discount_value'],
-        min_purchase=context.user_data.get('discount_min_purchase', 0),
-        max_discount=context.user_data.get('discount_max'),
-        usage_limit=context.user_data.get('discount_limit'),
-        start_date=context.user_data.get('discount_start'),
-        end_date=end_date
-    )
+    
+    try:
+        db.create_discount(
+            code=context.user_data['discount_code'],
+            type=context.user_data['discount_type'],
+            value=context.user_data['discount_value'],
+            min_purchase=context.user_data.get('discount_min_purchase', 0),
+            max_discount=context.user_data.get('discount_max'),
+            usage_limit=context.user_data.get('discount_limit'),
+            start_date=context.user_data.get('discount_start'),
+            end_date=end_date
+        )
+    except Exception as e:
+        logger.error(f"❌ Error creating discount: {e}")
+        await update.message.reply_text(
+            "❌ خطا در ایجاد کد تخفیف!",
+            reply_markup=admin_main_keyboard()
+        )
+        context.user_data.clear()
+        return ConversationHandler.END
     
     # نمایش خلاصه
     summary = "✅ **کد تخفیف ایجاد شد!**\n\n"
