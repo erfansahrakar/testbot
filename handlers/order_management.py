@@ -33,7 +33,8 @@ async def increase_item_quantity(update: Update, context: ContextTypes.DEFAULT_T
             await query.answer("❌ سفارش یافت نشد!", show_alert=True)
             return
         
-        order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at = order
+        # ✅ FIX: اضافه کردن expires_at
+        order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at, expires_at = order
         
         try:
             items = json.loads(items_json)
@@ -81,7 +82,8 @@ async def decrease_item_quantity(update: Update, context: ContextTypes.DEFAULT_T
             await query.answer("❌ سفارش یافت نشد!", show_alert=True)
             return
         
-        order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at = order
+        # ✅ FIX: اضافه کردن expires_at
+        order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at, expires_at = order
         
         try:
             items = json.loads(items_json)
@@ -139,7 +141,8 @@ async def edit_item_quantity_start(update: Update, context: ContextTypes.DEFAULT
             await query.answer("❌ سفارش یافت نشد!", show_alert=True)
             return ConversationHandler.END
         
-        order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at = order
+        # ✅ FIX: اضافه کردن expires_at
+        order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at, expires_at = order
         items = json.loads(items_json)
         
         # 🔥 بررسی index
@@ -208,7 +211,8 @@ async def edit_item_quantity_received(update: Update, context: ContextTypes.DEFA
             context.user_data.clear()
             return ConversationHandler.END
         
-        order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code_db, status, receipt, shipping_method, created_at = order
+        # ✅ FIX: اضافه کردن expires_at
+        order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code_db, status, receipt, shipping_method, created_at, expires_at = order
         items = json.loads(items_json)
         
         # 🔥 بررسی index
@@ -331,7 +335,8 @@ async def edit_item_notes_received(update: Update, context: ContextTypes.DEFAULT
         context.user_data.clear()
         return ConversationHandler.END
     
-    order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code_db, status, receipt, shipping_method, created_at = order
+    # ✅ FIX: اضافه کردن expires_at
+    order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code_db, status, receipt, shipping_method, created_at, expires_at = order
     items = json.loads(items_json)
     
     # تغییر تعداد و افزودن توضیحات
@@ -377,7 +382,8 @@ async def skip_item_notes(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.clear()
         return ConversationHandler.END
     
-    order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code_db, status, receipt, shipping_method, created_at = order
+    # ✅ FIX: اضافه کردن expires_at
+    order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code_db, status, receipt, shipping_method, created_at, expires_at = order
     items = json.loads(items_json)
     
     # تغییر فقط تعداد (بدون توضیحات)
