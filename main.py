@@ -1,7 +1,6 @@
 """
 ربات فروشگاه مانتو تلگرام
-✅ اضافه شده: handler های سفارشات با تاریخ شمسی
-✅ اضافه شده: ادامه پرداخت و حذف سفارش
+
 """
 import logging
 import signal
@@ -103,6 +102,8 @@ async def handle_text_messages(update: Update, context):
             return await send_analytics_menu(update, context)
         elif text == "🎛 داشبورد":
             return await admin_dashboard(update, context)
+        elif text == "🧹 پاکسازی دیتابیس":  # 🆕 دکمه جدید
+            return await manual_cleanup(update, context)
     
     # دستورات کاربر
     if text == "🛒 سبد خرید":
@@ -133,6 +134,79 @@ async def handle_photos(update: Update, context):
     """مدیریت عکس‌ها (رسیدها)"""
     from handlers.order import handle_receipt
     await handle_receipt(update, context)
+
+
+async def manual_cleanup(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """🆕 پاکسازی دستی توسط ادمین"""
+    user_id = update.effective_user.id
+    
+    if user_id != ADMIN_ID:
+        await update.message.reply_text("⛔️ شما دسترسی ندارید!")
+        return
+    
+    await update.message.reply_text("🧹 در حال پاکسازی دیتابیس...")
+    
+    try:
+        db = context.bot_data['db']
+        report = db.cleanup_old_orders(days_old=7)
+        
+        if report['success']:
+            message = (
+                "✅ **پاکسازی موفقیت‌آمیز بود!**\n\n"
+                f"🗑 تعداد حذف شده: {report['deleted_count']} سفارش\n"
+                f"📅 سفارشات قدیمی‌تر از: {report['days_old']} روز\n\n"
+                f"📊 سفارشات تکمیل شده حفظ شدند.\n"
+                f"🔥 فقط سفارشات رد شده و منقضی شده حذف شدند."
+            )
+        else:
+            message = f"❌ خطا در پاکسازی:\n{report.get('error', 'خطای نامشخص')}"
+        
+        await update.message.reply_text(message, parse_mode='Markdown')
+        
+    except Exception as e:
+        logger.error(f"❌ خطا در پاکسازی دستی: {e}")
+        await update.message.reply_text(f"❌ خطا رخ داد: {str(e)}")
+
+
+async def scheduled_cleanup(context: ContextTypes.DEFAULT_TYPE):
+    """🆕 پاکسازی زمان‌بندی شده (خودکار)"""
+    try:
+        logger.info("🧹 شروع پاکسازی خودکار...")
+        
+        db = context.bot_data['db']
+        report = db.cleanup_old_orders(days_old=7)
+        
+        if report['success'] and report['deleted_count'] > 0:
+            # ارسال گزارش به ادمین
+            message = (
+                "🤖 **گزارش پاکسازی خودکار**\n\n"
+                f"🗑 تعداد حذف شده: {report['deleted_count']} سفارش\n"
+                f"📅 سفارشات قدیمی‌تر از: {report['days_old']} روز\n"
+                f"⏰ زمان: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                f"✅ پاکسازی با موفقیت انجام شد."
+            )
+            
+            await context.bot.send_message(
+                ADMIN_ID,
+                message,
+                parse_mode='Markdown'
+            )
+            
+            logger.info(f"✅ پاکسازی خودکار موفق: {report['deleted_count']} سفارش حذف شد")
+        else:
+            logger.info("ℹ️ هیچ سفارش قدیمی برای حذف وجود نداشت")
+            
+    except Exception as e:
+        logger.error(f"❌ خطا در پاکسازی خودکار: {e}")
+        
+        # اطلاع به ادمین در صورت خطا
+        try:
+            await context.bot.send_message(
+                ADMIN_ID,
+                f"⚠️ خطا در پاکسازی خودکار:\n{str(e)}"
+            )
+        except:
+            pass
 
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -357,6 +431,20 @@ def main():
             logger.warning("⚠️ JobQueue در دسترس نیست - بکاپ خودکار غیرفعال است")
     except Exception as e:
         logger.warning(f"⚠️ خطا در راه‌اندازی بکاپ خودکار: {e}")
+    
+    # 🆕 راه‌اندازی پاکسازی خودکار روزانه (هر روز ساعت 3:30 صبح)
+    try:
+        if hasattr(application, 'job_queue') and application.job_queue is not None:
+            application.job_queue.run_daily(
+                scheduled_cleanup,
+                time=datetime_time(hour=3, minute=30),
+                name="cleanup_old_orders"
+            )
+            logger.info("✅ پاکسازی خودکار روزانه فعال شد (ساعت 3:30 صبح)")
+        else:
+            logger.warning("⚠️ JobQueue در دسترس نیست - پاکسازی خودکار غیرفعال است")
+    except Exception as e:
+        logger.warning(f"⚠️ خطا در راه‌اندازی پاکسازی خودکار: {e}")
     
     # راه‌اندازی به‌روزرسانی دوره‌ای آمار
     try:
@@ -602,6 +690,8 @@ def main():
     logger.info("✅ تاریخ شمسی برای سفارشات فعال")
     logger.info("✅ دکمه‌های دینامیک برای سفارشات فعال")
     logger.info("✅ قابلیت حذف سفارش توسط کاربر فعال")
+    logger.info("✅ پاکسازی خودکار روزانه فعال (ساعت 3:30 صبح)")
+    logger.info("✅ دکمه پاکسازی دستی برای ادمین فعال")
     
     try:
         application.run_polling(allowed_updates=Update.ALL_TYPES)
