@@ -730,8 +730,9 @@ async def create_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         
         # ارسال به ادمین
-        from order import send_order_to_admin
-        await send_order_to_admin(context, order_id)
+        # Import داخلی برای جلوگیری از circular import
+        import order as order_module
+        await order_module.send_order_to_admin(context, order_id)
         
         logger.info(f"✅ سفارش {order_id} با موفقیت ثبت شد")
         
@@ -828,8 +829,8 @@ async def create_order_from_message(update: Update, context: ContextTypes.DEFAUL
             reply_markup=user_main_keyboard()
         )
         
-        from order import send_order_to_admin
-        await send_order_to_admin(context, order_id)
+        import order as order_module
+        await order_module.send_order_to_admin(context, order_id)
         
         logger.info(f"✅ سفارش {order_id} با موفقیت ثبت شد")
         
