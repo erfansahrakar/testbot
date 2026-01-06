@@ -2,6 +2,7 @@
 هندلرهای مربوط به کاربران
 ✅ FIX: ترتیب صحیح log_order و log_discount_usage
 ✅ حذف view_my_orders (جابجا شده به order.py)
+✅ 🆕 اضافه شده: دکمه‌های + و - برای سبد خرید
 """
 import json
 from telegram import Update
@@ -212,6 +213,100 @@ async def view_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text,
             reply_markup=cart_keyboard(cart)
         )
+
+
+async def cart_increase(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """🆕 افزایش تعداد در سبد خرید"""
+    query = update.callback_query
+    
+    cart_id = int(query.data.split(":")[1])
+    user_id = update.effective_user.id
+    db = context.bot_data['db']
+    
+    # دریافت اطلاعات cart item
+    conn = db._get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT c.id, c.product_id, c.pack_id, c.quantity, pk.quantity as pack_qty, pk.name, p.name
+        FROM cart c
+        JOIN packs pk ON c.pack_id = pk.id
+        JOIN products p ON c.product_id = p.id
+        WHERE c.id = ? AND c.user_id = ?
+    """, (cart_id, user_id))
+    
+    result = cursor.fetchone()
+    
+    if not result:
+        await query.answer("❌ آیتم یافت نشد!", show_alert=True)
+        return
+    
+    cart_id_val, product_id, pack_id, current_qty, pack_qty, pack_name, product_name = result
+    
+    # افزایش تعداد به اندازه pack_qty
+    new_qty = current_qty + pack_qty
+    
+    cursor.execute("UPDATE cart SET quantity = ? WHERE id = ?", (new_qty, cart_id))
+    conn.commit()
+    
+    log_user_action(user_id, "افزایش در سبد", f"{product_name} - {pack_name}")
+    
+    # نمایش پیام
+    await query.answer(f"✅ {pack_qty} عدد اضافه شد!\n🔢 تعداد جدید: {new_qty} عدد", show_alert=True)
+    
+    # به‌روزرسانی نمایش سبد
+    await view_cart(update, context)
+    await query.message.delete()
+
+
+async def cart_decrease(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """🆕 کاهش تعداد در سبد خرید"""
+    query = update.callback_query
+    
+    cart_id = int(query.data.split(":")[1])
+    user_id = update.effective_user.id
+    db = context.bot_data['db']
+    
+    # دریافت اطلاعات cart item
+    conn = db._get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT c.id, c.product_id, c.pack_id, c.quantity, pk.quantity as pack_qty, pk.name, p.name
+        FROM cart c
+        JOIN packs pk ON c.pack_id = pk.id
+        JOIN products p ON c.product_id = p.id
+        WHERE c.id = ? AND c.user_id = ?
+    """, (cart_id, user_id))
+    
+    result = cursor.fetchone()
+    
+    if not result:
+        await query.answer("❌ آیتم یافت نشد!", show_alert=True)
+        return
+    
+    cart_id_val, product_id, pack_id, current_qty, pack_qty, pack_name, product_name = result
+    
+    # کاهش تعداد به اندازه pack_qty
+    new_qty = current_qty - pack_qty
+    
+    # اگر تعداد از pack_qty کمتر بشه، حذف کن
+    if new_qty < pack_qty:
+        cursor.execute("DELETE FROM cart WHERE id = ?", (cart_id,))
+        conn.commit()
+        
+        log_user_action(user_id, "حذف از سبد", f"{product_name} - {pack_name}")
+        
+        await query.answer(f"🗑 آیتم حذف شد!", show_alert=True)
+    else:
+        cursor.execute("UPDATE cart SET quantity = ? WHERE id = ?", (new_qty, cart_id))
+        conn.commit()
+        
+        log_user_action(user_id, "کاهش در سبد", f"{product_name} - {pack_name}")
+        
+        await query.answer(f"➖ {pack_qty} عدد کم شد!\n🔢 تعداد جدید: {new_qty} عدد", show_alert=True)
+    
+    # به‌روزرسانی نمایش سبد
+    await view_cart(update, context)
+    await query.message.delete()
 
 
 async def remove_from_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
