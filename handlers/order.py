@@ -1,8 +1,6 @@
 """
 مدیریت سفارشات و پرداخت‌ها
-✅ اضافه شده: تاریخ انقضا ۱ روزه با نمایش شمسی
-✅ اضافه شده: دکمه‌های دینامیک (ادامه پرداخت / حذف)
-✅ اضافه شده: حذف سفارش توسط کاربر
+
 """
 import json
 import jdatetime
@@ -74,16 +72,23 @@ def is_order_expired(order):
 
 
 def create_order_action_keyboard(order_id, status, is_expired):
-    """🆕 ساخت دکمه‌های دینامیک بر اساس وضعیت سفارش"""
+    """
+    🆕 ساخت دکمه‌های دینامیک بر اساس وضعیت سفارش
+    ✅ FIX: سفارشات تکمیل شده هیچ دکمه‌ای ندارند
+    """
     keyboard = []
     
-    # اگر سفارش منقضی شده یا تکمیل شده، فقط دکمه حذف
-    if is_expired or status in ['payment_confirmed', 'confirmed']:
+    # 🔴 سفارشات تکمیل شده → بدون دکمه (فقط نمایش)
+    if status in ['payment_confirmed', 'confirmed']:
+        return None  # هیچ دکمه‌ای نمایش نمیدیم
+    
+    # 🟡 سفارشات منقضی شده → فقط دکمه حذف
+    if is_expired:
         keyboard.append([
             InlineKeyboardButton("🗑 حذف سفارش", callback_data=f"delete_order:{order_id}")
         ])
     
-    # اگر در مرحله پرداخت است
+    # 🟢 سفارش در مرحله پرداخت
     elif status == 'waiting_payment':
         keyboard.append([
             InlineKeyboardButton("💳 ادامه پرداخت", callback_data=f"continue_payment:{order_id}")
@@ -92,19 +97,19 @@ def create_order_action_keyboard(order_id, status, is_expired):
             InlineKeyboardButton("🗑 حذف سفارش", callback_data=f"delete_order:{order_id}")
         ])
     
-    # اگر رسید ارسال شده
+    # 🟠 رسید ارسال شده → منتظر تایید ادمین
     elif status == 'receipt_sent':
         keyboard.append([
             InlineKeyboardButton("⏳ منتظر تایید ادمین...", callback_data=f"waiting:{order_id}")
         ])
     
-    # اگر در انتظار تایید اولیه است
+    # 🔵 در انتظار تایید اولیه
     elif status == 'pending':
         keyboard.append([
             InlineKeyboardButton("⏳ منتظر بررسی ادمین...", callback_data=f"waiting:{order_id}")
         ])
     
-    # اگر رد شده
+    # 🔴 رد شده → فقط دکمه حذف
     elif status == 'rejected':
         keyboard.append([
             InlineKeyboardButton("🗑 حذف سفارش", callback_data=f"delete_order:{order_id}")
@@ -141,7 +146,7 @@ async def view_user_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = f"📋 سفارش #{order_id}\n\n"
         text += f"📅 تاریخ: {format_jalali_datetime(created_at)}\n"
         
-        # 🆕 نمایش تاریخ انقضا
+        # 🆕 نمایش تاریخ انقضا فقط برای سفارشات ناتمام
         if expires_at and status not in ['payment_confirmed', 'confirmed', 'rejected']:
             text += f"⏰ تاریخ انقضا: {format_jalali_datetime(expires_at)}\n"
             if expired:
@@ -221,6 +226,16 @@ async def handle_delete_order(update: Update, context: ContextTypes.DEFAULT_TYPE
     order = db.get_order(order_id)
     if not order or order[1] != update.effective_user.id:
         await query.answer("❌ شما مجاز به حذف این سفارش نیستید!", show_alert=True)
+        return
+    
+    # بررسی وضعیت - جلوگیری از حذف سفارشات تکمیل شده
+    status = order[7]
+    if status in ['payment_confirmed', 'confirmed']:
+        await query.answer(
+            "⚠️ سفارشات تکمیل شده قابل حذف نیستند!\n\n"
+            "💡 این سفارش در سوابق شما باقی می‌ماند.",
+            show_alert=True
+        )
         return
     
     # حذف سفارش
