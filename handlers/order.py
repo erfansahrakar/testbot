@@ -202,7 +202,6 @@ async def view_pending_orders(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.message.reply_text(
                 "✅ هیچ سفارش جدیدی وجود ندارد!\n\n"
                 "تمام سفارشات بررسی شده‌اند.",
-                parse_mode='Markdown'
             )
             return
         
@@ -332,7 +331,6 @@ async def handle_continue_payment(update: Update, context: ContextTypes.DEFAULT_
     
     await query.edit_message_text(
         f"💳 **ادامه پرداخت سفارش #{order_id}**\n\n{message}",
-        parse_mode='Markdown'
     )
 
 
@@ -489,7 +487,6 @@ async def reject_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await query.edit_message_text(
         text,
-        parse_mode='Markdown',
         reply_markup=order_items_removal_keyboard(order_id, items)
     )
 
@@ -583,7 +580,6 @@ async def remove_item_from_order(update: Update, context: ContextTypes.DEFAULT_T
     
     await query.edit_message_text(
         text,
-        parse_mode='Markdown',
         reply_markup=order_items_removal_keyboard(order_id, items)
     )
 
