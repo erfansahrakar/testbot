@@ -1,9 +1,11 @@
 """
 مدیریت سفارشات و پرداخت‌ها
-
+✅ FIXED: اضافه شدن expire check به همه handler ها
+✅ FIXED: استفاده از OrderStatus Enum
 """
 import json
 import jdatetime
+import logging
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
@@ -15,7 +17,12 @@ from keyboards import (
     user_main_keyboard,
     order_items_removal_keyboard
 )
+from states import OrderStatus
 
+logger = logging.getLogger(__name__)
+
+
+# ==================== HELPER FUNCTIONS ====================
 
 def format_jalali_datetime(dt_str):
     """تبدیل تاریخ میلادی به شمسی"""
@@ -33,63 +40,88 @@ def format_jalali_datetime(dt_str):
 
 def get_order_status_emoji(status):
     """ایموجی وضعیت سفارش"""
+    # ✅ حالا میتونیم هم string و هم Enum قبول کنیم
+    status_str = str(status) if isinstance(status, OrderStatus) else status
+    
     status_map = {
-        'pending': '⏳',
-        'waiting_payment': '💳',
-        'receipt_sent': '📤',
-        'payment_confirmed': '✅',
-        'confirmed': '✅',
-        'rejected': '❌',
-        'expired': '⏰'
+        OrderStatus.PENDING: '⏳',
+        OrderStatus.WAITING_PAYMENT: '💳',
+        OrderStatus.RECEIPT_SENT: '📤',
+        OrderStatus.PAYMENT_CONFIRMED: '✅',
+        OrderStatus.CONFIRMED: '✅',
+        OrderStatus.REJECTED: '❌',
+        OrderStatus.EXPIRED: '⏰'
     }
-    return status_map.get(status, '❓')
+    
+    # جستجو با string
+    for key, emoji in status_map.items():
+        if str(key) == status_str:
+            return emoji
+    
+    return '❓'
 
 
 def get_order_status_text(status):
     """متن وضعیت سفارش"""
+    status_str = str(status) if isinstance(status, OrderStatus) else status
+    
     status_map = {
-        'pending': 'در انتظار تایید',
-        'waiting_payment': 'در انتظار پرداخت',
-        'receipt_sent': 'رسید ارسال شده',
-        'payment_confirmed': 'تایید شده',
-        'confirmed': 'تایید شده',
-        'rejected': 'رد شده',
-        'expired': 'منقضی شده'
+        OrderStatus.PENDING: 'در انتظار تایید',
+        OrderStatus.WAITING_PAYMENT: 'در انتظار پرداخت',
+        OrderStatus.RECEIPT_SENT: 'رسید ارسال شده',
+        OrderStatus.PAYMENT_CONFIRMED: 'تایید شده',
+        OrderStatus.CONFIRMED: 'تایید شده',
+        OrderStatus.REJECTED: 'رد شده',
+        OrderStatus.EXPIRED: 'منقضی شده'
     }
-    return status_map.get(status, 'نامشخص')
+    
+    for key, text in status_map.items():
+        if str(key) == status_str:
+            return text
+    
+    return 'نامشخص'
 
 
 def is_order_expired(order):
-    """بررسی منقضی بودن سفارش"""
+    """
+    بررسی منقضی بودن سفارش
+    ✅ FIX: این تابع همه جا استفاده میشه
+    """
+    if not order:
+        return True
+    
     expires_at = order[11]  # فیلد expires_at
     if not expires_at:
         return False
     
     if isinstance(expires_at, str):
-        expires_at = datetime.fromisoformat(expires_at)
+        try:
+            expires_at = datetime.fromisoformat(expires_at)
+        except:
+            return False
     
     return datetime.now() > expires_at
 
 
 def create_order_action_keyboard(order_id, status, is_expired):
     """
-    🆕 ساخت دکمه‌های دینامیک بر اساس وضعیت سفارش
-    ✅ FIX: سفارشات تکمیل شده هیچ دکمه‌ای ندارند
+    ساخت دکمه‌های دینامیک بر اساس وضعیت سفارش
     """
     keyboard = []
+    status_str = str(status)
     
-    # 🔴 سفارشات تکمیل شده → بدون دکمه (فقط نمایش)
-    if status in ['payment_confirmed', 'confirmed']:
-        return None  # هیچ دکمه‌ای نمایش نمیدیم
+    # سفارشات تکمیل شده → بدون دکمه
+    if status_str in [OrderStatus.PAYMENT_CONFIRMED, OrderStatus.CONFIRMED]:
+        return None
     
-    # 🟡 سفارشات منقضی شده → فقط دکمه حذف
+    # سفارشات منقضی شده → فقط دکمه حذف
     if is_expired:
         keyboard.append([
             InlineKeyboardButton("🗑 حذف سفارش", callback_data=f"delete_order:{order_id}")
         ])
     
-    # 🟢 سفارش در مرحله پرداخت
-    elif status == 'waiting_payment':
+    # سفارش در مرحله پرداخت
+    elif status_str == OrderStatus.WAITING_PAYMENT:
         keyboard.append([
             InlineKeyboardButton("💳 ادامه پرداخت", callback_data=f"continue_payment:{order_id}")
         ])
@@ -97,20 +129,20 @@ def create_order_action_keyboard(order_id, status, is_expired):
             InlineKeyboardButton("🗑 حذف سفارش", callback_data=f"delete_order:{order_id}")
         ])
     
-    # 🟠 رسید ارسال شده → منتظر تایید ادمین
-    elif status == 'receipt_sent':
+    # رسید ارسال شده
+    elif status_str == OrderStatus.RECEIPT_SENT:
         keyboard.append([
             InlineKeyboardButton("⏳ منتظر تایید ادمین...", callback_data=f"waiting:{order_id}")
         ])
     
-    # 🔵 در انتظار تایید اولیه
-    elif status == 'pending':
+    # در انتظار تایید اولیه
+    elif status_str == OrderStatus.PENDING:
         keyboard.append([
             InlineKeyboardButton("⏳ منتظر بررسی ادمین...", callback_data=f"waiting:{order_id}")
         ])
     
-    # 🔴 رد شده → فقط دکمه حذف
-    elif status == 'rejected':
+    # رد شده
+    elif status_str == OrderStatus.REJECTED:
         keyboard.append([
             InlineKeyboardButton("🗑 حذف سفارش", callback_data=f"delete_order:{order_id}")
         ])
@@ -118,8 +150,10 @@ def create_order_action_keyboard(order_id, status, is_expired):
     return InlineKeyboardMarkup(keyboard) if keyboard else None
 
 
+# ==================== USER HANDLERS ====================
+
 async def view_user_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """🆕 نمایش سفارشات کاربر با تاریخ شمسی و دکمه‌های دینامیک"""
+    """نمایش سفارشات کاربر"""
     user_id = update.effective_user.id
     db = context.bot_data['db']
     
@@ -140,14 +174,14 @@ async def view_user_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # بررسی منقضی بودن
         expired = is_order_expired(order)
-        actual_status = 'expired' if expired and status not in ['payment_confirmed', 'confirmed'] else status
+        actual_status = OrderStatus.EXPIRED if expired and status not in [OrderStatus.PAYMENT_CONFIRMED, OrderStatus.CONFIRMED] else status
         
-        # ساخت متن سفارش
+        # ساخت متن
         text = f"📋 سفارش #{order_id}\n\n"
         text += f"📅 تاریخ: {format_jalali_datetime(created_at)}\n"
         
-        # 🆕 نمایش تاریخ انقضا فقط برای سفارشات ناتمام
-        if expires_at and status not in ['payment_confirmed', 'confirmed', 'rejected']:
+        # نمایش تاریخ انقضا
+        if expires_at and status not in [OrderStatus.PAYMENT_CONFIRMED, OrderStatus.CONFIRMED, OrderStatus.REJECTED]:
             text += f"⏰ تاریخ انقضا: {format_jalali_datetime(expires_at)}\n"
             if expired:
                 text += "⚠️ این سفارش منقضی شده است!\n"
@@ -174,14 +208,16 @@ async def view_user_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
             }
             text += f"📦 نحوه ارسال: {shipping_names.get(shipping_method, shipping_method)}\n"
         
-        # 🆕 ساخت دکمه‌های دینامیک
         keyboard = create_order_action_keyboard(order_id, actual_status, expired)
         
         await update.message.reply_text(text, reply_markup=keyboard)
 
 
 async def handle_continue_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """🆕 ادامه فرآیند پرداخت"""
+    """
+    ادامه فرآیند پرداخت
+    ✅ FIX: چک expire اضافه شد
+    """
     query = update.callback_query
     await query.answer()
     
@@ -193,12 +229,13 @@ async def handle_continue_payment(update: Update, context: ContextTypes.DEFAULT_
         await query.edit_message_text("❌ سفارش یافت نشد!")
         return
     
-    # بررسی منقضی بودن
+    # ✅ بررسی منقضی بودن
     if is_order_expired(order):
         await query.edit_message_text(
             "⏰ این سفارش منقضی شده است!\n\n"
             "💡 می‌توانید آن را حذف کنید و سفارش جدیدی ثبت کنید."
         )
+        logger.info(f"⚠️ تلاش برای ادامه پرداخت سفارش منقضی {order_id}")
         return
     
     final_price = order[5]
@@ -216,7 +253,7 @@ async def handle_continue_payment(update: Update, context: ContextTypes.DEFAULT_
 
 
 async def handle_delete_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """🆕 حذف سفارش توسط کاربر"""
+    """حذف سفارش توسط کاربر"""
     query = update.callback_query
     
     order_id = int(query.data.split(":")[1])
@@ -228,9 +265,9 @@ async def handle_delete_order(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.answer("❌ شما مجاز به حذف این سفارش نیستید!", show_alert=True)
         return
     
-    # بررسی وضعیت - جلوگیری از حذف سفارشات تکمیل شده
+    # بررسی وضعیت
     status = order[7]
-    if status in ['payment_confirmed', 'confirmed']:
+    if status in [OrderStatus.PAYMENT_CONFIRMED, OrderStatus.CONFIRMED]:
         await query.answer(
             "⚠️ سفارشات تکمیل شده قابل حذف نیستند!\n\n"
             "💡 این سفارش در سوابق شما باقی می‌ماند.",
@@ -247,9 +284,13 @@ async def handle_delete_order(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"🗑 سفارش #{order_id} با موفقیت حذف شد.\n\n"
             "برای مشاهده سفارشات دیگر از منوی اصلی استفاده کنید."
         )
+        logger.info(f"✅ سفارش {order_id} توسط کاربر {update.effective_user.id} حذف شد")
     else:
         await query.answer("❌ خطا در حذف سفارش!", show_alert=True)
+        logger.error(f"❌ خطا در حذف سفارش {order_id}")
 
+
+# ==================== ADMIN HANDLERS ====================
 
 async def send_order_to_admin(context: ContextTypes.DEFAULT_TYPE, order_id: int):
     """ارسال سفارش به ادمین"""
@@ -257,6 +298,7 @@ async def send_order_to_admin(context: ContextTypes.DEFAULT_TYPE, order_id: int)
     order = db.get_order(order_id)
     
     if not order:
+        logger.error(f"❌ سفارش {order_id} یافت نشد برای ارسال به ادمین")
         return
     
     order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at, expires_at = order
@@ -296,11 +338,15 @@ async def send_order_to_admin(context: ContextTypes.DEFAULT_TYPE, order_id: int)
     text += f"\n📅 تاریخ: {format_jalali_datetime(created_at)}\n"
     text += f"⏰ انقضا: {format_jalali_datetime(expires_at)}"
     
-    await context.bot.send_message(
-        ADMIN_ID,
-        text,
-        reply_markup=order_confirmation_keyboard(order_id_val)
-    )
+    try:
+        await context.bot.send_message(
+            ADMIN_ID,
+            text,
+            reply_markup=order_confirmation_keyboard(order_id_val)
+        )
+        logger.info(f"✅ سفارش {order_id_val} به ادمین ارسال شد")
+    except Exception as e:
+        logger.error(f"❌ خطا در ارسال سفارش {order_id_val} به ادمین: {e}")
 
 
 async def view_pending_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -360,20 +406,26 @@ async def view_pending_orders(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """تایید سفارش توسط ادمین"""
+    """
+    تایید سفارش توسط ادمین
+    ✅ FIX: چک expire اضافه شد
+    """
     query = update.callback_query
     await query.answer("✅ سفارش تایید شد")
     
     order_id = int(query.data.split(":")[1])
     db = context.bot_data['db']
     
-    # بررسی منقضی بودن
+    # دریافت سفارش
     order = db.get_order(order_id)
+    
+    # ✅ بررسی منقضی بودن
     if is_order_expired(order):
         await query.answer("⚠️ این سفارش منقضی شده است!", show_alert=True)
+        logger.warning(f"⚠️ تلاش برای تایید سفارش منقضی {order_id}")
         return
     
-    db.update_order_status(order_id, 'waiting_payment')
+    db.update_order_status(order_id, OrderStatus.WAITING_PAYMENT)
     
     user_id = order[1]
     final_price = order[5]
@@ -389,10 +441,15 @@ async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(
         query.message.text + "\n\n✅ تایید شد - در انتظار پرداخت"
     )
+    
+    logger.info(f"✅ سفارش {order_id} توسط ادمین تایید شد")
 
 
 async def reject_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """نمایش آیتم‌ها برای حذف"""
+    """
+    نمایش آیتم‌ها برای حذف
+    ✅ FIX: چک expire اضافه شد
+    """
     query = update.callback_query
     await query.answer()
     
@@ -402,6 +459,16 @@ async def reject_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if not order:
         await query.answer("❌ سفارش یافت نشد!", show_alert=True)
+        return
+    
+    # ✅ بررسی منقضی بودن
+    if is_order_expired(order):
+        await query.answer(
+            "⏰ این سفارش منقضی شده است!\n\n"
+            "💡 نیازی به رد کردن نیست.",
+            show_alert=True
+        )
+        logger.info(f"⚠️ تلاش برای رد سفارش منقضی {order_id}")
         return
     
     order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at, expires_at = order
@@ -430,7 +497,10 @@ async def reject_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def remove_item_from_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """حذف آیتم با چک تعداد"""
+    """
+    حذف آیتم از سفارش
+    ✅ FIX: چک expire اضافه شد
+    """
     query = update.callback_query
     await query.answer()
     
@@ -445,10 +515,20 @@ async def remove_item_from_order(update: Update, context: ContextTypes.DEFAULT_T
         await query.answer("❌ سفارش یافت نشد!", show_alert=True)
         return
     
+    # ✅ بررسی منقضی بودن
+    if is_order_expired(order):
+        await query.answer(
+            "⏰ این سفارش منقضی شده است!\n\n"
+            "💡 نمی‌توان آیتمی حذف کرد.",
+            show_alert=True
+        )
+        logger.info(f"⚠️ تلاش برای حذف آیتم از سفارش منقضی {order_id}")
+        return
+    
     order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at, expires_at = order
     items = json.loads(items_json)
     
-    # چک کردن آیتم آخر
+    # چک آیتم آخر
     if len(items) <= 1:
         await query.answer(
             "⚠️ نمی‌توانید آخرین آیتم را حذف کنید!\n\n"
@@ -460,10 +540,8 @@ async def remove_item_from_order(update: Update, context: ContextTypes.DEFAULT_T
     # حذف آیتم
     removed_item = items.pop(item_index)
     
-    # محاسبه مجدد قیمت
+    # محاسبه مجدد
     new_total = sum(item['price'] for item in items)
-    
-    # محاسبه مجدد تخفیف
     new_discount = 0
     new_final = new_total
     
@@ -486,14 +564,19 @@ async def remove_item_from_order(update: Update, context: ContextTypes.DEFAULT_T
                 new_final = new_total - new_discount
     
     # بروزرسانی
-    conn = db._get_conn()
-    cursor = conn.cursor()
-    cursor.execute("""
-        UPDATE orders 
-        SET items = ?, total_price = ?, discount_amount = ?, final_price = ? 
-        WHERE id = ?
-    """, (json.dumps(items, ensure_ascii=False), new_total, new_discount, new_final, order_id))
-    conn.commit()
+    try:
+        with db.transaction() as cursor:
+            cursor.execute("""
+                UPDATE orders 
+                SET items = ?, total_price = ?, discount_amount = ?, final_price = ? 
+                WHERE id = ?
+            """, (json.dumps(items, ensure_ascii=False), new_total, new_discount, new_final, order_id))
+        
+        logger.info(f"✅ آیتم از سفارش {order_id} حذف شد")
+    except Exception as e:
+        logger.error(f"❌ خطا در حذف آیتم از سفارش {order_id}: {e}")
+        await query.answer("❌ خطا در حذف آیتم!", show_alert=True)
+        return
     
     text = "✅ **آیتم حذف شد!**\n\n"
     text += f"❌ حذف شد: {removed_item['product']} - {removed_item['pack']}\n\n"
@@ -524,16 +607,30 @@ async def remove_item_from_order(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def reject_full_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """رد کامل سفارش با پیام بهتر"""
+    """
+    رد کامل سفارش
+    ✅ FIX: چک expire اضافه شد
+    """
     query = update.callback_query
     await query.answer("❌ سفارش کامل رد شد")
     
     order_id = int(query.data.split(":")[1])
     db = context.bot_data['db']
     
-    db.update_order_status(order_id, 'rejected')
-    
     order = db.get_order(order_id)
+    
+    # ✅ بررسی منقضی بودن
+    if is_order_expired(order):
+        await query.answer(
+            "⏰ این سفارش منقضی شده است!\n\n"
+            "💡 نیازی به رد کردن نیست.",
+            show_alert=True
+        )
+        logger.info(f"⚠️ تلاش برای رد سفارش منقضی {order_id}")
+        return
+    
+    db.update_order_status(order_id, OrderStatus.REJECTED)
+    
     user_id = order[1]
     
     await context.bot.send_message(
@@ -548,6 +645,8 @@ async def reject_full_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(
         query.message.text + "\n\n❌ رد شد (کامل)"
     )
+    
+    logger.info(f"❌ سفارش {order_id} توسط ادمین رد شد")
 
 
 async def back_to_order_review(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -596,16 +695,26 @@ async def back_to_order_review(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def confirm_modified_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """تایید سفارش با تغییرات"""
+    """
+    تایید سفارش با تغییرات
+    ✅ FIX: چک expire اضافه شد
+    """
     query = update.callback_query
     await query.answer("✅ سفارش با تغییرات تایید شد")
     
     order_id = int(query.data.split(":")[1])
     db = context.bot_data['db']
     
-    db.update_order_status(order_id, 'waiting_payment')
-    
     order = db.get_order(order_id)
+    
+    # ✅ بررسی منقضی بودن
+    if is_order_expired(order):
+        await query.answer("⚠️ این سفارش منقضی شده است!", show_alert=True)
+        logger.warning(f"⚠️ تلاش برای تایید سفارش منقضی {order_id}")
+        return
+    
+    db.update_order_status(order_id, OrderStatus.WAITING_PAYMENT)
+    
     user_id = order[1]
     order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at, expires_at = order
     items = json.loads(items_json)
@@ -635,7 +744,11 @@ async def confirm_modified_order(update: Update, context: ContextTypes.DEFAULT_T
     await query.edit_message_text(
         query.message.text + "\n\n✅ تایید شد با تغییرات - در انتظار پرداخت"
     )
+    
+    logger.info(f"✅ سفارش {order_id} با تغییرات توسط ادمین تایید شد")
 
+
+# ==================== PAYMENT HANDLERS ====================
 
 async def handle_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """دریافت رسید از کاربر"""
@@ -658,7 +771,7 @@ async def handle_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     photo = update.message.photo[-1]
     
     db.add_receipt(order_id, photo.file_id)
-    db.update_order_status(order_id, 'receipt_sent')
+    db.update_order_status(order_id, OrderStatus.RECEIPT_SENT)
     
     await update.message.reply_text(MESSAGES["receipt_received"])
     
@@ -688,6 +801,8 @@ async def handle_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
         caption=text,
         reply_markup=payment_confirmation_keyboard(order_id)
     )
+    
+    logger.info(f"📷 رسید سفارش {order_id} دریافت شد")
 
 
 async def view_payment_receipts(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -697,7 +812,8 @@ async def view_payment_receipts(update: Update, context: ContextTypes.DEFAULT_TY
     conn = db._get_conn()
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT * FROM orders WHERE status = 'receipt_sent' ORDER BY created_at DESC"
+        "SELECT * FROM orders WHERE status = ? ORDER BY created_at DESC",
+        (OrderStatus.RECEIPT_SENT,)
     )
     query_result = cursor.fetchall()
     
@@ -741,7 +857,7 @@ async def confirm_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     order_id = int(query.data.split(":")[1])
     db = context.bot_data['db']
     
-    db.update_order_status(order_id, 'payment_confirmed')
+    db.update_order_status(order_id, OrderStatus.PAYMENT_CONFIRMED)
     
     order = db.get_order(order_id)
     user_id = order[1]
@@ -761,6 +877,8 @@ async def confirm_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_caption(
         caption=query.message.caption + "\n\n✅ تایید شد - منتظر انتخاب نحوه ارسال"
     )
+    
+    logger.info(f"✅ پرداخت سفارش {order_id} تایید شد")
 
 
 async def reject_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -771,7 +889,7 @@ async def reject_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     order_id = int(query.data.split(":")[1])
     db = context.bot_data['db']
     
-    db.update_order_status(order_id, 'waiting_payment')
+    db.update_order_status(order_id, OrderStatus.WAITING_PAYMENT)
     
     order = db.get_order(order_id)
     user_id = order[1]
@@ -789,3 +907,5 @@ async def reject_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_caption(
         caption=query.message.caption + "\n\n❌ رد شد - منتظر رسید جدید"
     )
+    
+    logger.info(f"❌ رسید سفارش {order_id} رد شد")
