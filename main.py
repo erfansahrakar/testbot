@@ -1,12 +1,11 @@
 """
 ربات فروشگاه مانتو تلگرام
-
 """
 import logging
 import signal
 import sys
 import time
-from datetime import time as datetime_time
+from datetime import time as datetime_time, datetime  # ✅ اضافه شدن datetime
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -102,14 +101,13 @@ async def handle_text_messages(update: Update, context):
             return await send_analytics_menu(update, context)
         elif text == "🎛 داشبورد":
             return await admin_dashboard(update, context)
-        elif text == "🧹 پاکسازی دیتابیس":  # 🆕 دکمه جدید
+        elif text == "🧹 پاکسازی دیتابیس":
             return await manual_cleanup(update, context)
     
     # دستورات کاربر
     if text == "🛒 سبد خرید":
         await view_cart(update, context)
     elif text == "📦 سفارشات من":
-        # 🆕 تغییر به تابع جدید
         await view_user_orders(update, context)
     elif text == "📍 آدرس ثبت شده من":
         await view_my_address(update, context)
@@ -353,7 +351,6 @@ def main():
         confirm_order, reject_order, confirm_payment, reject_payment,
         remove_item_from_order, reject_full_order, back_to_order_review,
         confirm_modified_order,
-        # 🆕 توابع جدید
         handle_continue_payment,
         handle_delete_order
     )
@@ -447,13 +444,13 @@ def main():
     except Exception as e:
         logger.warning(f"⚠️ خطا در راه‌اندازی پاکسازی خودکار: {e}")
     
-    # راه‌اندازی به‌روزرسانی دوره‌ای آمار
+    # ✅ راه‌اندازی به‌روزرسانی دوره‌ای آمار (هر ساعت)
     try:
         if hasattr(application, 'job_queue') and application.job_queue is not None:
             application.job_queue.run_repeating(
                 scheduled_stats_update,
-                interval=3600,
-                first=10,
+                interval=3600,  # هر 3600 ثانیه = 1 ساعت
+                first=10,  # اولین بار بعد 10 ثانیه اجرا شه
                 name="stats_update"
             )
             logger.info("✅ به‌روزرسانی دوره‌ای آمار فعال شد (هر 1 ساعت)")
@@ -625,6 +622,7 @@ def main():
     
     application.add_handler(CallbackQueryHandler(handle_dashboard_callback, pattern="^dash:"))
     
+    # CallbackQuery هندلر
     # CallbackQuery هندلرها
     application.add_handler(CallbackQueryHandler(handle_pack_selection, pattern="^select_pack:"))
     application.add_handler(CallbackQueryHandler(back_to_packs, pattern="^back_to_packs:"))
@@ -695,6 +693,7 @@ def main():
     logger.info("✅ قابلیت حذف سفارش توسط کاربر فعال")
     logger.info("✅ پاکسازی خودکار روزانه فعال (ساعت 3:30 صبح)")
     logger.info("✅ دکمه پاکسازی دستی برای ادمین فعال")
+    logger.info("✅ به‌روزرسانی خودکار آمار محصولات فعال (هر ساعت)")
     
     try:
         application.run_polling(allowed_updates=Update.ALL_TYPES)
