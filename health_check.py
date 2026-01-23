@@ -58,20 +58,26 @@ class HealthChecker:
             self.last_errors = self.last_errors[-self.max_errors:]
     
     def check_database(self) -> Dict:
-        """بررسی وضعیت دیتابیس"""
+        """بررسی وضعیت دیتابیس - ✅ FIXED"""
         try:
-            # تست اتصال
-            self.db.cursor.execute("SELECT 1")
+            # تست اتصال با استفاده از connection pool
+            conn = self.db._get_conn()
+            cursor = conn.cursor()
+            cursor.execute("SELECT 1")
+            result = cursor.fetchone()
+            
+            if not result or result[0] != 1:
+                raise Exception("Database connection test failed")
             
             # اندازه دیتابیس
             from config import DATABASE_NAME
             db_size = os.path.getsize(DATABASE_NAME) / (1024 * 1024)  # MB
             
             # تعداد جداول
-            self.db.cursor.execute(
+            cursor.execute(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='table'"
             )
-            table_count = self.db.cursor.fetchone()[0]
+            table_count = cursor.fetchone()[0]
             
             return {
                 'status': 'connected',
@@ -160,25 +166,31 @@ class HealthChecker:
             }
     
     def check_users(self) -> Dict:
-        """بررسی آمار کاربران"""
+        """بررسی آمار کاربران - ✅ FIXED"""
         try:
+            conn = self.db._get_conn()
+            cursor = conn.cursor()
+            
             # کل کاربران
-            self.db.cursor.execute("SELECT COUNT(*) FROM users")
-            total_users = self.db.cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM users")
+            result = cursor.fetchone()
+            total_users = result[0] if result else 0
             
             # کاربران امروز
-            self.db.cursor.execute("""
+            cursor.execute("""
                 SELECT COUNT(*) FROM users 
                 WHERE DATE(created_at) = DATE('now')
             """)
-            today_users = self.db.cursor.fetchone()[0]
+            result = cursor.fetchone()
+            today_users = result[0] if result else 0
             
             # کاربران این هفته
-            self.db.cursor.execute("""
+            cursor.execute("""
                 SELECT COUNT(*) FROM users 
                 WHERE created_at >= DATE('now', '-7 days')
             """)
-            week_users = self.db.cursor.fetchone()[0]
+            result = cursor.fetchone()
+            week_users = result[0] if result else 0
             
             return {
                 'total': total_users,
@@ -194,33 +206,40 @@ class HealthChecker:
             }
     
     def check_orders(self) -> Dict:
-        """بررسی آمار سفارشات"""
+        """بررسی آمار سفارشات - ✅ FIXED"""
         try:
+            conn = self.db._get_conn()
+            cursor = conn.cursor()
+            
             # کل سفارشات
-            self.db.cursor.execute("SELECT COUNT(*) FROM orders")
-            total_orders = self.db.cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM orders")
+            result = cursor.fetchone()
+            total_orders = result[0] if result else 0
             
             # سفارشات امروز
-            self.db.cursor.execute("""
+            cursor.execute("""
                 SELECT COUNT(*) FROM orders 
                 WHERE DATE(created_at) = DATE('now')
             """)
-            today_orders = self.db.cursor.fetchone()[0]
+            result = cursor.fetchone()
+            today_orders = result[0] if result else 0
             
             # سفارشات pending
-            self.db.cursor.execute("""
+            cursor.execute("""
                 SELECT COUNT(*) FROM orders 
                 WHERE status = 'pending'
             """)
-            pending_orders = self.db.cursor.fetchone()[0]
+            result = cursor.fetchone()
+            pending_orders = result[0] if result else 0
             
             # سفارشات موفق امروز
-            self.db.cursor.execute("""
+            cursor.execute("""
                 SELECT COUNT(*) FROM orders 
                 WHERE status IN ('confirmed', 'payment_confirmed')
                 AND DATE(created_at) = DATE('now')
             """)
-            successful_today = self.db.cursor.fetchone()[0]
+            result = cursor.fetchone()
+            successful_today = result[0] if result else 0
             
             return {
                 'total': total_orders,
