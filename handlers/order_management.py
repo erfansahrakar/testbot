@@ -10,16 +10,12 @@ from states import EDIT_ITEM_QUANTITY
 from keyboards import order_items_removal_keyboard, cancel_keyboard, admin_main_keyboard
 import logging
 
-
-# ✅ FIX: اضافه شدن rate limiting
-from rate_limiter import rate_limit, action_limit
 logger = logging.getLogger(__name__)
 
 # State جدید برای توضیحات
 EDIT_ITEM_NOTES = 999
 
 
-@rate_limit(max_requests=30, window_seconds=60)
 async def increase_item_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """🔥 افزایش تعداد"""
     query = update.callback_query
@@ -67,7 +63,6 @@ async def increase_item_quantity(update: Update, context: ContextTypes.DEFAULT_T
         await query.answer("❌ خطا رخ داد!", show_alert=True)
 
 
-@rate_limit(max_requests=30, window_seconds=60)
 async def decrease_item_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     🔥 کاهش تعداد با چک آیتم آخر
@@ -129,7 +124,6 @@ async def decrease_item_quantity(update: Update, context: ContextTypes.DEFAULT_T
         await query.answer("❌ خطا رخ داد!", show_alert=True)
 
 
-@rate_limit(max_requests=20, window_seconds=60)
 async def edit_item_quantity_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """✏️ شروع ویرایش تعداد"""
     query = update.callback_query
@@ -184,7 +178,6 @@ async def edit_item_quantity_start(update: Update, context: ContextTypes.DEFAULT
         return ConversationHandler.END
 
 
-@rate_limit(max_requests=20, window_seconds=60)
 async def edit_item_quantity_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """دریافت تعداد جدید - بدون محدودیت مضرب"""
     if update.message.text == "❌ لغو":
@@ -321,7 +314,6 @@ async def edit_item_quantity_received(update: Update, context: ContextTypes.DEFA
         return ConversationHandler.END
 
 
-@rate_limit(max_requests=10, window_seconds=60)
 async def edit_item_notes_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """دریافت توضیحات اختیاری"""
     notes = update.message.text.strip()
@@ -369,7 +361,6 @@ async def edit_item_notes_received(update: Update, context: ContextTypes.DEFAULT
     return ConversationHandler.END
 
 
-@rate_limit(max_requests=10, window_seconds=60)
 async def skip_item_notes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """رد کردن توضیحات"""
     query = update.callback_query
@@ -414,7 +405,6 @@ async def skip_item_notes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
-@rate_limit(max_requests=10, window_seconds=60)
 async def cancel_item_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """لغو ویرایش"""
     query = update.callback_query
@@ -429,7 +419,6 @@ async def cancel_item_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
-@rate_limit(max_requests=20, window_seconds=60)
 async def show_updated_items_with_notes(update_or_query, order_id, items, db):
     """نمایش لیست با توضیحات"""
     try:
@@ -477,7 +466,6 @@ async def show_updated_items_with_notes(update_or_query, order_id, items, db):
         logger.error(f"❌ Error in show_updated_items_with_notes: {e}", exc_info=True)
 
 
-@rate_limit(max_requests=20, window_seconds=60)
 async def update_order_prices(db, order_id, items, discount_code=None):
     """
     🔥 محاسبه صحیح قیمت‌ها با Try-Except
@@ -545,7 +533,6 @@ async def update_order_prices(db, order_id, items, discount_code=None):
         raise
 
 
-@rate_limit(max_requests=20, window_seconds=60)
 async def show_updated_order_items(query, order_id, items, db):
     """نمایش لیست به‌روز"""
     try:
