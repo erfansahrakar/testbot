@@ -11,6 +11,9 @@ from telegram.ext import ContextTypes
 from logger import log_payment, log_admin_action
 from config import ADMIN_ID, MESSAGES, CARD_NUMBER, CARD_HOLDER
 from keyboards import (
+
+# ✅ FIX: اضافه شدن rate limiting
+from rate_limiter import rate_limit, action_limit
     order_confirmation_keyboard, 
     payment_confirmation_keyboard, 
     user_main_keyboard,
@@ -146,6 +149,7 @@ def create_order_action_keyboard(order_id, status, is_expired):
 
 # ==================== USER HANDLERS ====================
 
+@rate_limit(max_requests=20, window_seconds=60)
 async def view_user_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """نمایش سفارشات کاربر"""
     user_id = update.effective_user.id
@@ -207,6 +211,7 @@ async def view_user_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(text, reply_markup=keyboard)
 
 
+@rate_limit(max_requests=10, window_seconds=60)
 async def handle_continue_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     ادامه فرآیند پرداخت
@@ -246,6 +251,7 @@ async def handle_continue_payment(update: Update, context: ContextTypes.DEFAULT_
     )
 
 
+@rate_limit(max_requests=10, window_seconds=60)
 async def handle_delete_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """حذف سفارش توسط کاربر"""
     query = update.callback_query
@@ -286,6 +292,7 @@ async def handle_delete_order(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 # ==================== ADMIN HANDLERS ====================
 
+@rate_limit(max_requests=20, window_seconds=60)
 async def send_order_to_admin(context: ContextTypes.DEFAULT_TYPE, order_id: int):
     """ارسال سفارش به ادمین"""
     db = context.bot_data['db']
@@ -343,6 +350,7 @@ async def send_order_to_admin(context: ContextTypes.DEFAULT_TYPE, order_id: int)
         logger.error(f"❌ خطا در ارسال سفارش {order_id_val} به ادمین: {e}")
 
 
+@rate_limit(max_requests=30, window_seconds=60)
 async def view_pending_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """نمایش سفارشات در انتظار"""
     db = context.bot_data['db']
@@ -399,6 +407,7 @@ async def view_pending_orders(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
 
 
+@rate_limit(max_requests=20, window_seconds=60)
 async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     تایید سفارش توسط ادمین
@@ -439,6 +448,7 @@ async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"✅ سفارش {order_id} توسط ادمین تایید شد")
 
 
+@rate_limit(max_requests=20, window_seconds=60)
 async def reject_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     نمایش آیتم‌ها برای حذف
@@ -490,6 +500,7 @@ async def reject_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+@rate_limit(max_requests=20, window_seconds=60)
 async def remove_item_from_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     حذف آیتم از سفارش
@@ -600,6 +611,7 @@ async def remove_item_from_order(update: Update, context: ContextTypes.DEFAULT_T
     )
 
 
+@rate_limit(max_requests=20, window_seconds=60)
 async def reject_full_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     رد کامل سفارش
@@ -643,6 +655,7 @@ async def reject_full_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"❌ سفارش {order_id} توسط ادمین رد شد")
 
 
+@rate_limit(max_requests=20, window_seconds=60)
 async def back_to_order_review(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """بازگشت به بررسی سفارش"""
     query = update.callback_query
@@ -688,6 +701,7 @@ async def back_to_order_review(update: Update, context: ContextTypes.DEFAULT_TYP
     )
 
 
+@rate_limit(max_requests=20, window_seconds=60)
 async def confirm_modified_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     تایید سفارش با تغییرات
@@ -744,6 +758,7 @@ async def confirm_modified_order(update: Update, context: ContextTypes.DEFAULT_T
 
 # ==================== PAYMENT HANDLERS ====================
 
+@rate_limit(max_requests=10, window_seconds=60)
 async def handle_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """دریافت رسید از کاربر"""
     user_id = update.effective_user.id
@@ -799,6 +814,7 @@ async def handle_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"📷 رسید سفارش {order_id} دریافت شد")
 
 
+@rate_limit(max_requests=30, window_seconds=60)
 async def view_payment_receipts(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """نمایش رسیدهای در انتظار تایید"""
     db = context.bot_data['db']
@@ -843,6 +859,7 @@ async def view_payment_receipts(update: Update, context: ContextTypes.DEFAULT_TY
             )
 
 
+@rate_limit(max_requests=20, window_seconds=60)
 async def confirm_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """تایید پرداخت توسط ادمین"""
     query = update.callback_query
@@ -875,6 +892,7 @@ async def confirm_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"✅ پرداخت سفارش {order_id} تایید شد")
 
 
+@rate_limit(max_requests=20, window_seconds=60)
 async def reject_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """رد پرداخت توسط ادمین"""
     query = update.callback_query
