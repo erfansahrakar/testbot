@@ -517,7 +517,7 @@ async def clear_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== ORDER FINALIZATION ====================
 
-@action_limit('order', max_requests=3, window_seconds=3600)
+# ✅ FIX: حذف محدودیت action_limit - کاربران باید بتوانند بدون محدودیت سفارش دهند
 async def finalize_order_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """شروع نهایی کردن سفارش"""
     query = update.callback_query
@@ -565,7 +565,7 @@ async def finalize_order_start(update: Update, context: ContextTypes.DEFAULT_TYP
 
 # ==================== USER INFO COLLECTION ====================
 
-@rate_limit(max_requests=10, window_seconds=60)
+@rate_limit(max_requests=100, window_seconds=60)
 async def full_name_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """دریافت نام و نام خانوادگی - با اعتبارسنجی"""
     if update.message.text == "❌ لغو":
@@ -594,7 +594,7 @@ async def full_name_received(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return ADDRESS_TEXT
 
 
-@rate_limit(max_requests=10, window_seconds=60)
+@rate_limit(max_requests=100, window_seconds=60)
 async def address_text_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """دریافت آدرس - با اعتبارسنجی"""
     if update.message.text == "❌ لغو":
@@ -623,7 +623,7 @@ async def address_text_received(update: Update, context: ContextTypes.DEFAULT_TY
     return PHONE_NUMBER
 
 
-@rate_limit(max_requests=10, window_seconds=60)
+@rate_limit(max_requests=100, window_seconds=60)
 async def phone_number_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """دریافت شماره تماس و ذخیره نهایی - با اعتبارسنجی"""
     if update.message.text == "❌ لغو":
@@ -697,7 +697,7 @@ async def phone_number_received(update: Update, context: ContextTypes.DEFAULT_TY
     return ConversationHandler.END
 
 
-@rate_limit(max_requests=10, window_seconds=60)
+@rate_limit(max_requests=100, window_seconds=60)
 async def confirm_user_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """تایید اطلاعات قبلی کاربر"""
     query = update.callback_query
@@ -706,7 +706,7 @@ async def confirm_user_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await create_order(update, context)
 
 
-@rate_limit(max_requests=10, window_seconds=60)
+@rate_limit(max_requests=100, window_seconds=60)
 async def edit_user_info_for_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """ویرایش اطلاعات برای سفارش"""
     query = update.callback_query
@@ -722,7 +722,7 @@ async def edit_user_info_for_order(update: Update, context: ContextTypes.DEFAULT
     return FULL_NAME
 
 
-@rate_limit(max_requests=10, window_seconds=60)
+@rate_limit(max_requests=100, window_seconds=60)
 async def use_old_address(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """استفاده از آدرس قبلی"""
     query = update.callback_query
@@ -731,7 +731,7 @@ async def use_old_address(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await create_order(update, context)
 
 
-@rate_limit(max_requests=10, window_seconds=60)
+@rate_limit(max_requests=100, window_seconds=60)
 async def use_new_address(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """وارد کردن آدرس جدید"""
     query = update.callback_query
@@ -749,7 +749,7 @@ async def use_new_address(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== ORDER CREATION ====================
 
-@rate_limit(max_requests=20, window_seconds=60)
+@rate_limit(max_requests=100, window_seconds=60)
 async def create_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     ✅ FIXED باگ 4: ایجاد سفارش با Transaction
@@ -860,7 +860,7 @@ async def create_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
 
-@rate_limit(max_requests=20, window_seconds=60)
+@rate_limit(max_requests=100, window_seconds=60)
 async def create_order_from_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     ✅ FIXED باگ 4: ایجاد سفارش از پیام با Transaction
@@ -967,14 +967,14 @@ async def create_order_from_message(update: Update, context: ContextTypes.DEFAUL
 
 # ==================== SHIPPING & INVOICE ====================
 
-@rate_limit(max_requests=20, window_seconds=60)
+@rate_limit(max_requests=100, window_seconds=60)
 async def back_to_packs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """بازگشت به انتخاب پک"""
     query = update.callback_query
     await query.answer("دکمه‌های پک همیشه نمایش داده می‌شوند!", show_alert=True)
 
 
-@rate_limit(max_requests=20, window_seconds=60)
+@rate_limit(max_requests=100, window_seconds=60)
 async def handle_shipping_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """انتخاب نحوه ارسال"""
     query = update.callback_query
@@ -1002,7 +1002,7 @@ async def handle_shipping_selection(update: Update, context: ContextTypes.DEFAUL
     await show_final_invoice(update, context, order_id)
 
 
-@rate_limit(max_requests=20, window_seconds=60)
+@rate_limit(max_requests=100, window_seconds=60)
 async def show_final_invoice(update, context, order_id):
     """نمایش فاکتور نهایی"""
     query = update.callback_query if hasattr(update, 'callback_query') else None
@@ -1074,7 +1074,7 @@ async def show_final_invoice(update, context, order_id):
         )
 
 
-@rate_limit(max_requests=10, window_seconds=60)
+@rate_limit(max_requests=100, window_seconds=60)
 async def final_confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """تایید نهایی سفارش"""
     query = update.callback_query
@@ -1108,7 +1108,7 @@ async def final_confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
 
 
-@rate_limit(max_requests=10, window_seconds=60)
+@rate_limit(max_requests=100, window_seconds=60)
 async def final_edit_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """ویرایش اطلاعات سفارش"""
     query = update.callback_query
@@ -1126,7 +1126,7 @@ async def final_edit_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== ADDRESS MANAGEMENT ====================
 
-@rate_limit(max_requests=20, window_seconds=60)
+@rate_limit(max_requests=100, window_seconds=60)
 async def view_my_address(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """نمایش آدرس ثبت شده"""
     user_id = update.effective_user.id
@@ -1169,7 +1169,7 @@ async def view_my_address(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
-@rate_limit(max_requests=10, window_seconds=60)
+@rate_limit(max_requests=100, window_seconds=60)
 async def edit_address(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """شروع ویرایش آدرس"""
     query = update.callback_query
@@ -1185,7 +1185,7 @@ async def edit_address(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return FULL_NAME
 
 
-@rate_limit(max_requests=10, window_seconds=60)
+@rate_limit(max_requests=100, window_seconds=60)
 async def contact_us(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """نمایش اطلاعات تماس"""
     text = "📞 <b>راه‌های ارتباطی با ما:</b>\n\n"
