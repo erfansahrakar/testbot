@@ -10,10 +10,11 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from logger import log_payment, log_admin_action
 from config import ADMIN_ID, MESSAGES, CARD_NUMBER, CARD_HOLDER
-from keyboards import (
 
 # ✅ FIX: اضافه شدن rate limiting
 from rate_limiter import rate_limit, action_limit
+
+from keyboards import (
     order_confirmation_keyboard, 
     payment_confirmation_keyboard, 
     user_main_keyboard,
@@ -253,115 +254,68 @@ async def handle_continue_payment(update: Update, context: ContextTypes.DEFAULT_
 
 @rate_limit(max_requests=10, window_seconds=60)
 async def handle_delete_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """حذف سفارش توسط کاربر"""
+    """
+    حذف سفارش توسط کاربر
+    ✅ FIX: امکان حذف فقط برای سفارشات منقضی/رد شده
+    """
     query = update.callback_query
     
     order_id = int(query.data.split(":")[1])
+    user_id = update.effective_user.id
     db = context.bot_data['db']
     
-    # بررسی مالکیت
     order = db.get_order(order_id)
-    if not order or order[1] != update.effective_user.id:
-        await query.answer("❌ شما مجاز به حذف این سفارش نیستید!", show_alert=True)
+    
+    if not order:
+        await query.answer("❌ سفارش یافت نشد!", show_alert=True)
         return
     
-    # بررسی وضعیت
     status = order[7]
-    if status == OrderStatus.PAYMENT_CONFIRMED or status == OrderStatus.CONFIRMED:
-        await query.answer(
-            "⚠️ سفارشات تکمیل شده قابل حذف نیستند!\n\n"
-            "💡 این سفارش در سوابق شما باقی می‌ماند.",
-            show_alert=True
-        )
+    
+    # ✅ فقط سفارشات منقضی یا رد شده قابل حذف هستند
+    if status in [OrderStatus.PAYMENT_CONFIRMED, OrderStatus.CONFIRMED]:
+        await query.answer("⚠️ سفارشات تایید شده قابل حذف نیستند!", show_alert=True)
         return
     
-    # حذف سفارش
-    success = db.delete_order(order_id)
+    db.delete_order(order_id)
     
-    if success:
-        await query.answer("✅ سفارش حذف شد", show_alert=True)
-        await query.edit_message_text(
-            f"🗑 سفارش #{order_id} با موفقیت حذف شد.\n\n"
-            "برای مشاهده سفارشات دیگر از منوی اصلی استفاده کنید."
-        )
-        logger.info(f"✅ سفارش {order_id} توسط کاربر {update.effective_user.id} حذف شد")
-    else:
-        await query.answer("❌ خطا در حذف سفارش!", show_alert=True)
-        logger.error(f"❌ خطا در حذف سفارش {order_id}")
+    await query.answer("✅ سفارش حذف شد", show_alert=False)
+    await query.edit_message_text(
+        "🗑 سفارش با موفقیت حذف شد.\n\n"
+        "💡 می‌توانید سفارش جدیدی ثبت کنید."
+    )
+    
+    logger.info(f"🗑 سفارش {order_id} توسط کاربر {user_id} حذف شد")
 
 
 # ==================== ADMIN HANDLERS ====================
 
-@rate_limit(max_requests=20, window_seconds=60)
-async def send_order_to_admin(context: ContextTypes.DEFAULT_TYPE, order_id: int):
-    """ارسال سفارش به ادمین"""
-    db = context.bot_data['db']
-    order = db.get_order(order_id)
-    
-    if not order:
-        logger.error(f"❌ سفارش {order_id} یافت نشد برای ارسال به ادمین")
-        return
-    
-    order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at, expires_at = order
-    items = json.loads(items_json)
-    user = db.get_user(user_id)
-    
-    first_name = user[2] if len(user) > 2 else "کاربر"
-    username = user[1] if len(user) > 1 and user[1] else "ندارد"
-    phone = user[4] if len(user) > 4 and user[4] else "ندارد"
-    full_name = user[3] if len(user) > 3 and user[3] else "ندارد"
-    address = user[6] if len(user) > 6 and user[6] else "ندارد"
-    
-    text = f"🆕 سفارش جدید #{order_id_val}\n\n"
-    text += f"👤 کاربر: {first_name} (@{username})\n"
-    text += f"📝 نام: {full_name}\n"
-    text += f"📞 تلفن: {phone}\n"
-    text += f"📍 آدرس: {address}\n\n"
-    text += "📦 آیتم‌ها:\n"
-    
-    for item in items:
-        text += f"• {item['product']} - {item['pack']}\n"
-        text += f"  تعداد: {item['quantity']} عدد\n"
-        
-        if item.get('admin_notes'):
-            text += f"  📝 توضیحات: {item['admin_notes']}\n"
-        
-        text += f"  قیمت: {item['price']:,.0f} تومان\n\n"
-    
-    text += f"💰 جمع کل: {total_price:,.0f} تومان\n"
-    
-    if discount_amount > 0:
-        text += f"🎁 تخفیف: {discount_amount:,.0f} تومان\n"
-        if discount_code:
-            text += f"🎫 کد تخفیف: {discount_code}\n"
-        text += f"💳 مبلغ نهایی: {final_price:,.0f} تومان\n"
-    
-    text += f"\n📅 تاریخ: {format_jalali_datetime(created_at)}\n"
-    text += f"⏰ انقضا: {format_jalali_datetime(expires_at)}"
-    
-    try:
-        await context.bot.send_message(
-            ADMIN_ID,
-            text,
-            reply_markup=order_confirmation_keyboard(order_id_val)
-        )
-        logger.info(f"✅ سفارش {order_id_val} به ادمین ارسال شد")
-    except Exception as e:
-        logger.error(f"❌ خطا در ارسال سفارش {order_id_val} به ادمین: {e}")
-
-
 @rate_limit(max_requests=30, window_seconds=60)
 async def view_pending_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """نمایش سفارشات در انتظار"""
+    """
+    نمایش سفارشات در انتظار تایید
+    ✅ FIX: چک expire اضافه شد
+    """
     db = context.bot_data['db']
+    
     orders = db.get_pending_orders()
     
     if not orders:
-        await update.message.reply_text("هیچ سفارش جدیدی وجود ندارد.")
+        await update.message.reply_text("هیچ سفارش جدیدی در انتظار تایید نیست.")
         return
     
     for order in orders:
         order_id, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at, expires_at = order
+        
+        # ✅ بررسی منقضی بودن
+        if is_order_expired(order):
+            await update.message.reply_text(
+                f"⏰ سفارش #{order_id} منقضی شده است و نیاز به بررسی ندارد.\n"
+                f"💡 این سفارش در پاکسازی بعدی حذف خواهد شد."
+            )
+            logger.info(f"⚠️ سفارش منقضی {order_id} رد اتوماتیک شد")
+            continue
+        
         items = json.loads(items_json)
         user = db.get_user(user_id)
         
@@ -371,39 +325,29 @@ async def view_pending_orders(update: Update, context: ContextTypes.DEFAULT_TYPE
         full_name = user[3] if len(user) > 3 and user[3] else "ندارد"
         address = user[6] if len(user) > 6 and user[6] else "ندارد"
         
-        # بررسی منقضی بودن
-        expired = is_order_expired(order)
-        
         text = f"📋 سفارش #{order_id}\n\n"
         text += f"👤 {first_name} (@{username})\n"
         text += f"📝 نام: {full_name}\n"
         text += f"📞 {phone}\n"
         text += f"📍 {address}\n\n"
         
-        if expired:
-            text += "⚠️ **این سفارش منقضی شده است!**\n\n"
+        # نمایش تاریخ انقضا
+        if expires_at:
+            jalali_expires = format_jalali_datetime(expires_at)
+            text += f"⏰ تاریخ انقضا: {jalali_expires}\n\n"
         
         for item in items:
-            text += f"• {item['product']} ({item['pack']}) - {item['quantity']} عدد"
-            
-            if item.get('admin_notes'):
-                text += f"\n  📝 {item['admin_notes']}"
-            
-            text += "\n"
+            text += f"• {item['product']} ({item['pack']}) - {item['quantity']} عدد - {item['price']:,.0f} تومان\n"
         
-        text += f"\n💰 جمع: {total_price:,.0f} تومان"
+        text += f"\n💰 مبلغ کل: {total_price:,.0f} تومان"
         
         if discount_amount > 0:
-            text += f"\n🎁 تخفیف: {discount_amount:,.0f} تومان"
-            text += f"\n💳 نهایی: {final_price:,.0f} تومان"
-        
-        text += f"\n\n📅 تاریخ: {format_jalali_datetime(created_at)}"
-        text += f"\n⏰ انقضا: {format_jalali_datetime(expires_at)}"
+            text += f"\n🎁 تخفیف ({discount_code}): {discount_amount:,.0f} تومان"
+            text += f"\n💳 مبلغ نهایی: {final_price:,.0f} تومان"
         
         await update.message.reply_text(
             text,
-            reply_markup=order_confirmation_keyboard(order_id),
-            parse_mode='Markdown'
+            reply_markup=order_confirmation_keyboard(order_id)
         )
 
 
@@ -419,7 +363,6 @@ async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     order_id = int(query.data.split(":")[1])
     db = context.bot_data['db']
     
-    # دریافت سفارش
     order = db.get_order(order_id)
     
     # ✅ بررسی منقضی بودن
@@ -439,65 +382,48 @@ async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
         holder=CARD_HOLDER
     )
     
-    await context.bot.send_message(user_id, message)
+    await context.bot.send_message(user_id, message, parse_mode='Markdown')
     
     await query.edit_message_text(
         query.message.text + "\n\n✅ تایید شد - در انتظار پرداخت"
     )
     
+    log_admin_action(ADMIN_ID, f"تایید سفارش {order_id}")
     logger.info(f"✅ سفارش {order_id} توسط ادمین تایید شد")
 
 
 @rate_limit(max_requests=20, window_seconds=60)
 async def reject_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    نمایش آیتم‌ها برای حذف
+    رد سفارش توسط ادمین
     ✅ FIX: چک expire اضافه شد
     """
     query = update.callback_query
-    await query.answer()
+    await query.answer("❌ سفارش رد شد")
     
     order_id = int(query.data.split(":")[1])
     db = context.bot_data['db']
-    order = db.get_order(order_id)
     
-    if not order:
-        await query.answer("❌ سفارش یافت نشد!", show_alert=True)
-        return
+    order = db.get_order(order_id)
     
     # ✅ بررسی منقضی بودن
     if is_order_expired(order):
-        await query.answer(
-            "⏰ این سفارش منقضی شده است!\n\n"
-            "💡 نیازی به رد کردن نیست.",
-            show_alert=True
-        )
-        logger.info(f"⚠️ تلاش برای رد سفارش منقضی {order_id}")
+        await query.answer("⚠️ این سفارش منقضی شده است!", show_alert=True)
+        logger.warning(f"⚠️ تلاش برای رد سفارش منقضی {order_id}")
         return
     
-    order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at, expires_at = order
-    items = json.loads(items_json)
+    db.update_order_status(order_id, OrderStatus.REJECTED)
     
-    text = "🗑 **حذف آیتم از سفارش**\n\n"
-    text += f"📋 سفارش #{order_id}\n\n"
-    text += "کدام محصول را می‌خواهید حذف کنید؟\n\n"
+    user_id = order[1]
     
-    for idx, item in enumerate(items):
-        text += f"{idx + 1}. {item['product']} - {item['pack']}\n"
-        text += f"   {item['quantity']} عدد"
-        
-        if item.get('admin_notes'):
-            text += f"\n   📝 {item['admin_notes']}"
-        
-        text += f" - {item['price']:,.0f} تومان\n\n"
-    
-    text += f"💳 جمع کل: {final_price:,.0f} تومان"
+    await context.bot.send_message(user_id, MESSAGES["order_rejected"])
     
     await query.edit_message_text(
-        text,
-        parse_mode='Markdown',
-        reply_markup=order_items_removal_keyboard(order_id, items)
+        query.message.text + "\n\n❌ رد شد"
     )
+    
+    log_admin_action(ADMIN_ID, f"رد سفارش {order_id}")
+    logger.info(f"❌ سفارش {order_id} توسط ادمین رد شد")
 
 
 @rate_limit(max_requests=20, window_seconds=60)
@@ -516,105 +442,71 @@ async def remove_item_from_order(update: Update, context: ContextTypes.DEFAULT_T
     db = context.bot_data['db']
     order = db.get_order(order_id)
     
-    if not order:
-        await query.answer("❌ سفارش یافت نشد!", show_alert=True)
-        return
-    
     # ✅ بررسی منقضی بودن
     if is_order_expired(order):
-        await query.answer(
-            "⏰ این سفارش منقضی شده است!\n\n"
-            "💡 نمی‌توان آیتمی حذف کرد.",
-            show_alert=True
-        )
-        logger.info(f"⚠️ تلاش برای حذف آیتم از سفارش منقضی {order_id}")
+        await query.answer("⚠️ این سفارش منقضی شده است!", show_alert=True)
+        logger.warning(f"⚠️ تلاش برای ویرایش سفارش منقضی {order_id}")
         return
     
-    order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at, expires_at = order
-    items = json.loads(items_json)
+    items = json.loads(order[2])
     
-    # چک آیتم آخر
-    if len(items) <= 1:
-        await query.answer(
-            "⚠️ نمی‌توانید آخرین آیتم را حذف کنید!\n\n"
-            "💡 اگر می‌خواهید کل سفارش رد بشه، از دکمه 'رد کامل' استفاده کنید.",
-            show_alert=True
-        )
+    if item_index < 0 or item_index >= len(items):
+        await query.answer("❌ خطا در حذف آیتم")
         return
     
-    # حذف آیتم
     removed_item = items.pop(item_index)
     
-    # محاسبه مجدد
-    new_total = sum(item['price'] for item in items)
-    new_discount = 0
-    new_final = new_total
-    
-    if discount_code:
-        discount_info = db.get_discount(discount_code)
-        if discount_info:
-            discount_type = discount_info[2]
-            discount_value = discount_info[3]
-            min_purchase = discount_info[4]
-            max_discount = discount_info[5]
-            
-            if new_total >= min_purchase:
-                if discount_type == 'percentage':
-                    new_discount = new_total * (discount_value / 100)
-                    if max_discount and new_discount > max_discount:
-                        new_discount = max_discount
-                else:
-                    new_discount = discount_value
-                
-                new_final = new_total - new_discount
-    
-    # بروزرسانی
-    try:
-        with db.transaction() as cursor:
-            cursor.execute("""
-                UPDATE orders 
-                SET items = ?, total_price = ?, discount_amount = ?, final_price = ? 
-                WHERE id = ?
-            """, (json.dumps(items, ensure_ascii=False), new_total, new_discount, new_final, order_id))
-        
-        logger.info(f"✅ آیتم از سفارش {order_id} حذف شد")
-    except Exception as e:
-        logger.error(f"❌ خطا در حذف آیتم از سفارش {order_id}: {e}")
-        await query.answer("❌ خطا در حذف آیتم!", show_alert=True)
+    if len(items) == 0:
+        await query.answer("❌ نمی‌توان تمام آیتم‌ها را حذف کرد. برای رد کامل از دکمه 'رد سفارش' استفاده کنید.", show_alert=True)
         return
     
-    text = "✅ **آیتم حذف شد!**\n\n"
-    text += f"❌ حذف شد: {removed_item['product']} - {removed_item['pack']}\n\n"
-    text += "📋 آیتم‌های باقی‌مانده:\n\n"
+    new_total = sum(item['price'] * item['quantity'] for item in items)
+    discount_amount = order[4]
+    new_final = max(0, new_total - discount_amount)
     
-    for idx, item in enumerate(items):
-        text += f"{idx + 1}. {item['product']} - {item['pack']}\n"
-        text += f"   {item['quantity']} عدد"
+    db.update_order_items(order_id, items, new_total, new_final)
+    
+    await query.answer(f"✅ {removed_item['product']} حذف شد")
+    
+    updated_order = db.get_order(order_id)
+    order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at, expires_at = updated_order
+    items = json.loads(items_json)
+    user = db.get_user(user_id)
+    
+    first_name = user[2] if len(user) > 2 else "کاربر"
+    username = user[1] if len(user) > 1 and user[1] else "ندارد"
+    phone = user[4] if len(user) > 4 and user[4] else "ندارد"
+    full_name = user[3] if len(user) > 3 and user[3] else "ندارد"
+    address = user[6] if len(user) > 6 and user[6] else "ندارد"
+    
+    text = f"📋 سفارش #{order_id} (ویرایش شده)\n\n"
+    text += f"👤 {first_name} (@{username})\n"
+    text += f"📝 نام: {full_name}\n"
+    text += f"📞 {phone}\n"
+    text += f"📍 {address}\n\n"
+    
+    for item in items:
+        text += f"• {item['product']} ({item['pack']}) - {item['quantity']} عدد"
         
         if item.get('admin_notes'):
-            text += f"\n   📝 {item['admin_notes']}"
+            text += f"\n  📝 {item['admin_notes']}"
         
-        text += f" - {item['price']:,.0f} تومان\n\n"
+        text += "\n"
     
-    text += f"💳 جمع جدید: {new_final:,.0f} تومان\n\n"
-    
-    if len(items) == 1:
-        text += "⚠️ **این آخرین آیتم است!**\n"
-        text += "برای رد کامل سفارش از دکمه زیر استفاده کنید.\n\n"
-    else:
-        text += "می‌خواهید آیتم دیگری حذف کنید؟"
+    text += f"\n💰 {final_price:,.0f} تومان"
     
     await query.edit_message_text(
         text,
-        parse_mode='Markdown',
         reply_markup=order_items_removal_keyboard(order_id, items)
     )
+    
+    logger.info(f"🗑 آیتم {item_index} از سفارش {order_id} حذف شد")
 
 
 @rate_limit(max_requests=20, window_seconds=60)
 async def reject_full_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    رد کامل سفارش
+    رد کامل سفارش بدون تایید
     ✅ FIX: چک expire اضافه شد
     """
     query = update.callback_query
@@ -627,46 +519,41 @@ async def reject_full_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # ✅ بررسی منقضی بودن
     if is_order_expired(order):
-        await query.answer(
-            "⏰ این سفارش منقضی شده است!\n\n"
-            "💡 نیازی به رد کردن نیست.",
-            show_alert=True
-        )
-        logger.info(f"⚠️ تلاش برای رد سفارش منقضی {order_id}")
+        await query.answer("⚠️ این سفارش منقضی شده است!", show_alert=True)
+        logger.warning(f"⚠️ تلاش برای رد سفارش منقضی {order_id}")
         return
     
     db.update_order_status(order_id, OrderStatus.REJECTED)
     
     user_id = order[1]
-    
-    await context.bot.send_message(
-        user_id,
-        "❌ متأسفانه سفارش شما رد شد.\n\n"
-        "💡 محصولات همچنان در سبد شما باقی هستند.\n"
-        "می‌توانید تغییرات لازم را اعمال کرده و دوباره سفارش دهید.\n\n"
-        "📞 برای اطلاعات بیشتر با پشتیبانی تماس بگیرید.",
-        reply_markup=user_main_keyboard()
-    )
+    await context.bot.send_message(user_id, MESSAGES["order_rejected"])
     
     await query.edit_message_text(
-        query.message.text + "\n\n❌ رد شد (کامل)"
+        query.message.text + "\n\n❌ سفارش کامل رد شد"
     )
     
-    logger.info(f"❌ سفارش {order_id} توسط ادمین رد شد")
+    log_admin_action(ADMIN_ID, f"رد کامل سفارش {order_id}")
+    logger.info(f"❌ سفارش {order_id} به صورت کامل رد شد")
 
 
 @rate_limit(max_requests=20, window_seconds=60)
 async def back_to_order_review(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """بازگشت به بررسی سفارش"""
+    """
+    بازگشت به بررسی سفارش
+    ✅ FIX: چک expire اضافه شد
+    """
     query = update.callback_query
     await query.answer()
     
     order_id = int(query.data.split(":")[1])
     db = context.bot_data['db']
+    
     order = db.get_order(order_id)
     
-    if not order:
-        await query.answer("❌ سفارش یافت نشد!", show_alert=True)
+    # ✅ بررسی منقضی بودن
+    if is_order_expired(order):
+        await query.answer("⚠️ این سفارش منقضی شده است!", show_alert=True)
+        logger.warning(f"⚠️ تلاش برای بازگشت به سفارش منقضی {order_id}")
         return
     
     order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at, expires_at = order
@@ -921,3 +808,137 @@ async def reject_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     
     logger.info(f"❌ رسید سفارش {order_id} رد شد")
+
+
+# ==================== QUANTITY MANAGEMENT ====================
+
+@rate_limit(max_requests=20, window_seconds=60)
+async def increase_item_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """افزایش تعداد یک آیتم"""
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data.split(":")
+    order_id = int(data[1])
+    item_index = int(data[2])
+    
+    db = context.bot_data['db']
+    order = db.get_order(order_id)
+    
+    if is_order_expired(order):
+        await query.answer("⚠️ این سفارش منقضی شده است!", show_alert=True)
+        return
+    
+    items = json.loads(order[2])
+    
+    if 0 <= item_index < len(items):
+        items[item_index]['quantity'] += 1
+        
+        new_total = sum(item['price'] * item['quantity'] for item in items)
+        discount_amount = order[4]
+        new_final = max(0, new_total - discount_amount)
+        
+        db.update_order_items(order_id, items, new_total, new_final)
+        
+        await query.answer(f"✅ تعداد {items[item_index]['product']} افزایش یافت")
+        
+        # به‌روزرسانی پیام
+        updated_order = db.get_order(order_id)
+        order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at, expires_at = updated_order
+        items = json.loads(items_json)
+        user = db.get_user(user_id)
+        
+        first_name = user[2] if len(user) > 2 else "کاربر"
+        username = user[1] if len(user) > 1 and user[1] else "ندارد"
+        phone = user[4] if len(user) > 4 and user[4] else "ندارد"
+        full_name = user[3] if len(user) > 3 and user[3] else "ندارد"
+        address = user[6] if len(user) > 6 and user[6] else "ندارد"
+        
+        text = f"📋 سفارش #{order_id}\n\n"
+        text += f"👤 {first_name} (@{username})\n"
+        text += f"📝 نام: {full_name}\n"
+        text += f"📞 {phone}\n"
+        text += f"📍 {address}\n\n"
+        
+        for item in items:
+            text += f"• {item['product']} ({item['pack']}) - {item['quantity']} عدد"
+            
+            if item.get('admin_notes'):
+                text += f"\n  📝 {item['admin_notes']}"
+            
+            text += "\n"
+        
+        text += f"\n💰 {final_price:,.0f} تومان"
+        
+        await query.edit_message_text(
+            text,
+            reply_markup=order_items_removal_keyboard(order_id, items)
+        )
+
+
+@rate_limit(max_requests=20, window_seconds=60)
+async def decrease_item_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """کاهش تعداد یک آیتم"""
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data.split(":")
+    order_id = int(data[1])
+    item_index = int(data[2])
+    
+    db = context.bot_data['db']
+    order = db.get_order(order_id)
+    
+    if is_order_expired(order):
+        await query.answer("⚠️ این سفارش منقضی شده است!", show_alert=True)
+        return
+    
+    items = json.loads(order[2])
+    
+    if 0 <= item_index < len(items):
+        if items[item_index]['quantity'] > 1:
+            items[item_index]['quantity'] -= 1
+            
+            new_total = sum(item['price'] * item['quantity'] for item in items)
+            discount_amount = order[4]
+            new_final = max(0, new_total - discount_amount)
+            
+            db.update_order_items(order_id, items, new_total, new_final)
+            
+            await query.answer(f"✅ تعداد {items[item_index]['product']} کاهش یافت")
+        else:
+            await query.answer("⚠️ حداقل تعداد 1 عدد است. برای حذف از دکمه 'حذف' استفاده کنید.", show_alert=True)
+            return
+        
+        # به‌روزرسانی پیام
+        updated_order = db.get_order(order_id)
+        order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at, expires_at = updated_order
+        items = json.loads(items_json)
+        user = db.get_user(user_id)
+        
+        first_name = user[2] if len(user) > 2 else "کاربر"
+        username = user[1] if len(user) > 1 and user[1] else "ندارد"
+        phone = user[4] if len(user) > 4 and user[4] else "ندارد"
+        full_name = user[3] if len(user) > 3 and user[3] else "ندارد"
+        address = user[6] if len(user) > 6 and user[6] else "ندارد"
+        
+        text = f"📋 سفارش #{order_id}\n\n"
+        text += f"👤 {first_name} (@{username})\n"
+        text += f"📝 نام: {full_name}\n"
+        text += f"📞 {phone}\n"
+        text += f"📍 {address}\n\n"
+        
+        for item in items:
+            text += f"• {item['product']} ({item['pack']}) - {item['quantity']} عدد"
+            
+            if item.get('admin_notes'):
+                text += f"\n  📝 {item['admin_notes']}"
+            
+            text += "\n"
+        
+        text += f"\n💰 {final_price:,.0f} تومان"
+        
+        await query.edit_message_text(
+            text,
+            reply_markup=order_items_removal_keyboard(order_id, items)
+        )
