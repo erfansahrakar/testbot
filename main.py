@@ -30,8 +30,7 @@ from logger import (
     log_error
 )
 
-# ✅ FIX: ایمپورت دکوریتورهای rate limiting
-from rate_limiter import rate_limiter, rate_limit, action_limit
+from rate_limiter import rate_limiter
 from states import *
 
 # 🆕 ایمپورت ماژول‌های جدید
@@ -51,8 +50,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# ✅ FIX: اضافه کردن rate_limit به start - محدودیت افزایش یافت
-@rate_limit(max_requests=30, window_seconds=60)
 async def start(update: Update, context):
     """هندلر دستور /start"""
     user_id = update.effective_user.id
@@ -66,8 +63,6 @@ async def start(update: Update, context):
         await user_start(update, context)
 
 
-# ✅ FIX: اضافه کردن rate_limit به handle_text_messages - محدودیت افزایش یافت
-@rate_limit(max_requests=50, window_seconds=60)
 async def handle_text_messages(update: Update, context):
     """مدیریت پیام‌های متنی"""
     text = update.message.text
@@ -133,8 +128,6 @@ async def handle_text_messages(update: Update, context):
         )
 
 
-# ✅ FIX: اضافه کردن rate_limit به handle_photos - محدودیت افزایش یافت
-@rate_limit(max_requests=30, window_seconds=60)
 async def handle_photos(update: Update, context):
     """مدیریت عکس‌ها (رسیدها)"""
     from handlers.order import handle_receipt
@@ -379,7 +372,7 @@ def main():
     )
     
     from handlers.discount import (
-        create_discount_start, discount_code_received, discount_type_received,
+        create_discount_start, discount_code_received, discount_type_selected,
         discount_value_received, discount_min_purchase_received,
         discount_max_received, discount_limit_received,
         discount_start_received, discount_end_received,
@@ -531,7 +524,7 @@ def main():
         entry_points=[CallbackQueryHandler(create_discount_start, pattern="^create_discount$")],
         states={
             DISCOUNT_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, discount_code_received)],
-            DISCOUNT_TYPE: [MessageHandler(filters.TEXT & ~filters.COMMAND, discount_type_received)],
+            DISCOUNT_TYPE: [CallbackQueryHandler(discount_type_selected, pattern="^discount_type:")],
             DISCOUNT_VALUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, discount_value_received)],
             DISCOUNT_MIN_PURCHASE: [MessageHandler(filters.TEXT & ~filters.COMMAND, discount_min_purchase_received)],
             DISCOUNT_MAX: [MessageHandler(filters.TEXT & ~filters.COMMAND, discount_max_received)],
