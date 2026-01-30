@@ -598,12 +598,12 @@ class Database:
     def create_order(self, user_id: int, items: List[dict], total_price: float, 
                     discount_amount: float = 0, final_price: Optional[float] = None, 
                     discount_code: Optional[str] = None):
-        """ایجاد سفارش با تاریخ انقضا ۱ روزه"""
+        """ایجاد سفارش با تاریخ انقضا ۱ ساعته"""
         items_json = json.dumps(items, ensure_ascii=False)
         if final_price is None:
             final_price = total_price - discount_amount
         
-        expires_at = datetime.now() + timedelta(days=1)
+        expires_at = datetime.now() + timedelta(hours=1)  # ۱ ساعت
         
         with self.transaction() as cursor:
             cursor.execute("""
