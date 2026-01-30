@@ -1,10 +1,6 @@
 """
 هندلرهای مربوط به کاربران
-✅ FIXED: Memory Leaks در cart handlers
-✅ FIXED: Code Duplication در cart_increase/decrease
-✅ FIXED: Transaction در create_order
-✅ FIXED: Better Error Handling
-✅ FIXED: Race Condition با استفاده از asyncio.Lock
+
 """
 import json
 import logging
@@ -249,8 +245,10 @@ async def user_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await show_product(update, context, product_id)
             return
     
+    from config import get_start_message
+    
     await update.message.reply_text(
-        MESSAGES["start_user"],
+        get_start_message(),
         reply_markup=user_main_keyboard()
     )
 
@@ -1166,10 +1164,7 @@ async def edit_address(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def contact_us(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """نمایش اطلاعات تماس"""
-    text = "📞 <b>راه‌های ارتباطی با ما:</b>\n\n"
-    text += "📱 شماره تماس: <code>09123834869</code>\n"
-    text += "🆔 آیدی تلگرام: @manto_omde_erfan\n"
-    text += "📢 کانال ما: @manto_omdeh_erfan\n\n"
-    text += "🕐 پاسخگویی: همه روزه ۹ صبح تا ۹ شب"
+    from config import format_contact_info
     
+    text = format_contact_info()
     await update.message.reply_text(text, parse_mode='HTML')
