@@ -9,7 +9,7 @@ from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from logger import log_payment, log_admin_action
-from config import ADMIN_ID, MESSAGES, CARD_NUMBER, CARD_HOLDER
+from config import ADMIN_ID, MESSAGES, CARD_NUMBER, CARD_HOLDER, IBAN_NUMBER
 from keyboards import (
     order_confirmation_keyboard, 
     payment_confirmation_keyboard, 
@@ -237,6 +237,7 @@ async def handle_continue_payment(update: Update, context: ContextTypes.DEFAULT_
     message = MESSAGES["order_confirmed"].format(
         amount=f"{final_price:,.0f}",
         card=CARD_NUMBER,
+        iban=IBAN_NUMBER,
         holder=CARD_HOLDER
     )
     
@@ -427,6 +428,7 @@ async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = MESSAGES["order_confirmed"].format(
         amount=f"{final_price:,.0f}",
         card=CARD_NUMBER,
+        iban=IBAN_NUMBER,
         holder=CARD_HOLDER
     )
     
@@ -730,6 +732,7 @@ async def confirm_modified_order(update: Update, context: ContextTypes.DEFAULT_T
     message += MESSAGES["order_confirmed"].format(
         amount=f"{final_price:,.0f}",
         card=CARD_NUMBER,
+        iban=IBAN_NUMBER,
         holder=CARD_HOLDER
     )
     
@@ -893,6 +896,7 @@ async def reject_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message += MESSAGES["order_confirmed"].format(
         amount=f"{final_price:,.0f}",
         card=CARD_NUMBER,
+        iban=IBAN_NUMBER,
         holder=CARD_HOLDER
     )
     
