@@ -375,7 +375,7 @@ def main():
         create_discount_start, discount_code_received, discount_type_selected,
         discount_value_received, discount_min_purchase_received,
         discount_max_received, discount_limit_received,
-        discount_per_user_limit_received
+        discount_per_user_limit_received,
         discount_start_received, discount_end_received,
         list_discounts, view_discount, toggle_discount, delete_discount
     )
