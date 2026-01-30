@@ -1,6 +1,7 @@
 """
 🆕 هندلرهای مربوط به اعمال کد تخفیف توسط کاربر
 ✅ FIXED: محاسبات unit_price درست شد
+✅ FIXED: اضافه شدن per_user_limit به unpacking
 """
 from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler
@@ -65,8 +66,8 @@ async def discount_code_entered(update: Update, context: ContextTypes.DEFAULT_TY
         )
         return ConversationHandler.END
     
-    # بررسی اعتبار کد
-    discount_id, code, disc_type, value, min_purchase, max_discount, usage_limit, used_count, start_date, end_date, is_active, created_at = discount
+    # ✅ FIX: اضافه شدن per_user_limit به unpacking
+    discount_id, code, disc_type, value, min_purchase, max_discount, usage_limit, used_count, per_user_limit, start_date, end_date, is_active, created_at = discount
     
     # بررسی فعال بودن
     if not is_active:
@@ -96,13 +97,23 @@ async def discount_code_entered(update: Update, context: ContextTypes.DEFAULT_TY
             )
             return ConversationHandler.END
     
-    # بررسی محدودیت استفاده
+    # بررسی محدودیت استفاده کل
     if usage_limit and used_count >= usage_limit:
         await update.message.reply_text(
             "❌ این کد تخفیف به حداکثر تعداد استفاده رسیده است!",
             reply_markup=user_main_keyboard()
         )
         return ConversationHandler.END
+    
+    # ✅ NEW: بررسی محدودیت به ازای هر کاربر
+    if per_user_limit:
+        user_usage_count = db.get_user_discount_usage_count(user_id, discount_code)
+        if user_usage_count >= per_user_limit:
+            await update.message.reply_text(
+                f"❌ شما قبلاً {per_user_limit} بار از این کد استفاده کرده‌اید!",
+                reply_markup=user_main_keyboard()
+            )
+            return ConversationHandler.END
     
     # بررسی حداقل خرید
     if total_price < min_purchase:
