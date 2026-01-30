@@ -324,7 +324,7 @@ class Database:
             
             cursor.execute("""
                 UPDATE orders 
-                SET expires_at = datetime(created_at, '+1 day')
+                SET expires_at = datetime(created_at, '+1 hour')
                 WHERE expires_at IS NULL
             """)
             conn.commit()
