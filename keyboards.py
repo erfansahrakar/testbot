@@ -1,6 +1,6 @@
 """
 کیبوردها و دکمه‌های ربات
-✅ VERIFIED: همه توابع استفاده میشن
+✅ FIXED: اضافه شدن per_user_limit به unpacking در discount_list_keyboard
 """
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 
@@ -147,10 +147,14 @@ def discount_management_keyboard():
 
 
 def discount_list_keyboard(discounts):
-    """لیست کدهای تخفیف"""
+    """
+    لیست کدهای تخفیف
+    ✅ FIXED: اضافه شدن per_user_limit به unpacking
+    """
     keyboard = []
     for discount in discounts:
-        discount_id, code, type, value, min_purchase, max_discount, usage_limit, used_count, start_date, end_date, is_active, created_at = discount
+        # ✅ FIX: اضافه شدن per_user_limit به unpacking
+        discount_id, code, type, value, min_purchase, max_discount, usage_limit, used_count, per_user_limit, start_date, end_date, is_active, created_at = discount
         status = "✅" if is_active else "❌"
         keyboard.append([InlineKeyboardButton(
             f"{status} {code} ({used_count}/{usage_limit if usage_limit else '∞'})",
@@ -278,7 +282,7 @@ def analytics_menu_keyboard():
 
 
 def quantity_keyboard(product_id, pack_id):
-    """دکمه‌های انتخاب تعداد - ✅ استفاده میشه"""
+    """دکمه‌های انتخاب تعداد"""
     keyboard = []
     row = []
     
