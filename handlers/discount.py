@@ -63,7 +63,7 @@ def calculate_discount(total_price: float, discount_code: str, db, user_id: int 
             start_dt = datetime.fromisoformat(start_date)
             if now < start_dt:
                 return 0, total_price, "❌ این کد تخفیف هنوز فعال نشده است!"
-        except ValueError:
+        except (ValueError, TypeError):
             logger.error(f"Invalid start_date format: {start_date}")
     
     if end_date:
@@ -71,7 +71,7 @@ def calculate_discount(total_price: float, discount_code: str, db, user_id: int 
             end_dt = datetime.fromisoformat(end_date)
             if now > end_dt:
                 return 0, total_price, "❌ این کد تخفیف منقضی شده است!"
-        except ValueError:
+        except (ValueError, TypeError):
             logger.error(f"Invalid end_date format: {end_date}")
     
     if usage_limit and used_count >= usage_limit:
@@ -621,12 +621,22 @@ async def view_discount(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text += f"\n👤 محدودیت هر کاربر: {per_user_limit} بار"
     
     if start_date:
-        text += f"\n📅 شروع: {start_date[:10]}"
+        try:
+            text += f"\n📅 شروع: {start_date[:10]}"
+        except (TypeError, AttributeError):
+            pass
     
     if end_date:
-        text += f"\n📅 پایان: {end_date[:10]}"
+        try:
+            text += f"\n📅 پایان: {end_date[:10]}"
+        except (TypeError, AttributeError):
+            pass
     
-    text += f"\n\n📆 ایجاد شده: {created_at[:10]}"
+    if created_at:
+        try:
+            text += f"\n\n📆 ایجاد شده: {created_at[:10]}"
+        except (TypeError, AttributeError):
+            pass
     
     await query.edit_message_text(
         text,
