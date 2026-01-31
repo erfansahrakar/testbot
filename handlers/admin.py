@@ -2,6 +2,7 @@
 هندلرهای مربوط به پنل ادمین
 
 """
+import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
 from config import ADMIN_ID, MESSAGES, CHANNEL_USERNAME
@@ -15,6 +16,8 @@ from keyboards import (
     cancel_keyboard
 )
 
+logger = logging.getLogger(__name__)
+
 
 async def is_admin(user_id):
     """بررسی ادمین بودن کاربر"""
@@ -23,6 +26,11 @@ async def is_admin(user_id):
 
 async def admin_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """شروع پنل ادمین"""
+    # ✅ FIX: چک کردن effective_user
+    if not update.effective_user:
+        logger.warning(f"⚠️ Update without user in admin_start: {{update}}")
+        return
+    
     if not await is_admin(update.effective_user.id):
         return
     
@@ -34,6 +42,11 @@ async def admin_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def add_product_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """شروع افزودن محصول"""
+    # ✅ FIX: چک کردن effective_user
+    if not update.effective_user:
+        logger.warning(f"⚠️ Update without user in add_product_start: {{update}}")
+        return
+    
     if not await is_admin(update.effective_user.id):
         return ConversationHandler.END
     
@@ -79,6 +92,11 @@ async def product_desc_received(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def product_photo_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """دریافت عکس محصول"""
+    # ✅ FIX: چک کردن effective_user
+    if not update.effective_user or not update.message:
+        logger.warning(f"⚠️ Update without user/message in product_photo_received: {update}")
+        return ConversationHandler.END
+    
     if not update.message.photo:
         await update.message.reply_text("❌ لطفاً یک عکس ارسال کنید!")
         return PRODUCT_PHOTO
@@ -121,6 +139,11 @@ async def product_photo_received(update: Update, context: ContextTypes.DEFAULT_T
 
 async def list_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """نمایش لیست محصولات"""
+    # ✅ FIX: چک کردن effective_user
+    if not update.effective_user:
+        logger.warning(f"⚠️ Update without user in list_products: {{update}}")
+        return
+    
     if not await is_admin(update.effective_user.id):
         return
     
@@ -172,6 +195,11 @@ async def add_pack_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """شروع افزودن پک"""
     query = update.callback_query
     await query.answer()
+    
+    # ✅ FIX: چک کردن effective_user
+    if not update.effective_user:
+        logger.warning(f"⚠️ Update without user in add_pack_start: {update}")
+        return ConversationHandler.END
     
     if not await is_admin(update.effective_user.id):
         return ConversationHandler.END
@@ -443,6 +471,11 @@ async def delete_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
+    # ✅ FIX: چک کردن effective_user
+    if not update.effective_user:
+        logger.warning(f"⚠️ Update without user in delete_product: {update}")
+        return
+    
     if not await is_admin(update.effective_user.id):
         return
     
@@ -463,6 +496,11 @@ async def delete_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def show_statistics(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """نمایش آمار فروش"""
+    # ✅ FIX: چک کردن effective_user
+    if not update.effective_user:
+        logger.warning(f"⚠️ Update without user in show_statistics: {{update}}")
+        return
+    
     if not await is_admin(update.effective_user.id):
         return
     
