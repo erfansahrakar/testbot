@@ -984,8 +984,19 @@ async def handle_shipping_selection(update: Update, context: ContextTypes.DEFAUL
     await show_final_invoice(update, context, order_id)
 
 
+def _html_escape(text):
+    """Escape کاراکترهای خاص HTML تا متن داده کاربر خراب نشه"""
+    if not text:
+        return text
+    text = str(text)
+    text = text.replace("&", "&amp;")
+    text = text.replace("<", "&lt;")
+    text = text.replace(">", "&gt;")
+    return text
+
+
 async def show_final_invoice(update, context, order_id):
-    """نمایش فاکتور نهایی"""
+    """نمایش فاکتور نهایی - با HTML به جای Markdown"""
     query = update.callback_query if hasattr(update, 'callback_query') else None
     db = context.bot_data['db']
     
@@ -997,44 +1008,44 @@ async def show_final_invoice(update, context, order_id):
     items = json.loads(items_json)
     user = db.get_user(user_id)
     
-    invoice_text = "📋 **فاکتور نهایی سفارش**\n"
+    invoice_text = "📋 <b>فاکتور نهایی سفارش</b>\n"
     invoice_text += "═" * 25 + "\n\n"
     
-    invoice_text += "🛍 **محصولات:**\n"
+    invoice_text += "🛍 <b>محصولات:</b>\n"
     for item in items:
-        invoice_text += f"▫️ {item['product']} - {item['pack']}\n"
+        invoice_text += f"▫️ {_html_escape(item['product'])} - {_html_escape(item['pack'])}\n"
         invoice_text += f"   تعداد: {item['quantity']} عدد\n"
         invoice_text += f"   قیمت: {item['price']:,.0f} تومان\n\n"
     
-    invoice_text += f"💰 **جمع کل:** {total_price:,.0f} تومان\n"
+    invoice_text += f"💰 <b>جمع کل:</b> {total_price:,.0f} تومان\n"
     
     if discount_amount > 0:
-        invoice_text += f"🎁 **تخفیف:** {discount_amount:,.0f} تومان\n"
+        invoice_text += f"🎁 <b>تخفیف:</b> {discount_amount:,.0f} تومان\n"
         if discount_code:
-            invoice_text += f"🎫 **کد تخفیف:** {discount_code}\n"
-        invoice_text += f"💳 **مبلغ نهایی:** {final_price:,.0f} تومان\n"
+            invoice_text += f"🎫 <b>کد تخفیف:</b> {_html_escape(discount_code)}\n"
+        invoice_text += f"💳 <b>مبلغ نهایی:</b> {final_price:,.0f} تومان\n"
     
     invoice_text += "═" * 25 + "\n\n"
     
-    invoice_text += "👤 **مشخصات گیرنده:**\n"
+    invoice_text += "👤 <b>مشخصات گیرنده:</b>\n"
     if user[3]:
-        invoice_text += f"▫️ نام: {user[3]}\n"
+        invoice_text += f"▫️ نام: {_html_escape(user[3])}\n"
     if user[4]:
-        invoice_text += f"▫️ موبایل: {user[4]}\n"
+        invoice_text += f"▫️ موبایل: {_html_escape(user[4])}\n"
     if user[5]:
-        invoice_text += f"▫️ ثابت: {user[5]}\n"
+        invoice_text += f"▫️ ثابت: {_html_escape(user[5])}\n"
     if len(user) > 6 and user[6]:
-        invoice_text += f"▫️ آدرس: {user[6]}\n"
+        invoice_text += f"▫️ آدرس: {_html_escape(user[6])}\n"
     if len(user) > 7 and user[7]:
-        invoice_text += f"▫️ فروشگاه: {user[7]}\n"
+        invoice_text += f"▫️ فروشگاه: {_html_escape(user[7])}\n"
     
     invoice_text += "\n"
     
     if shipping_method:
-        invoice_text += f"📦 **نحوه ارسال:** {shipping_method}\n\n"
+        invoice_text += f"📦 <b>نحوه ارسال:</b> {_html_escape(shipping_method)}\n\n"
     
     invoice_text += "═" * 25 + "\n\n"
-    invoice_text += "❓ **آیا همه اطلاعات مورد تایید است؟**"
+    invoice_text += "❓ <b>آیا همه اطلاعات مورد تایید است؟</b>"
     
     from keyboards import final_confirmation_keyboard
     
@@ -1043,14 +1054,14 @@ async def show_final_invoice(update, context, order_id):
     if query:
         await query.message.reply_text(
             invoice_text,
-            parse_mode='Markdown',
+            parse_mode='HTML',
             reply_markup=final_confirmation_keyboard()
         )
     else:
         await context.bot.send_message(
             user_id,
             invoice_text,
-            parse_mode='Markdown',
+            parse_mode='HTML',
             reply_markup=final_confirmation_keyboard()
         )
 
