@@ -12,11 +12,15 @@ from states import PRODUCT_NAME, PRODUCT_DESC, PRODUCT_PHOTO, PACK_NAME, PACK_QU
 from keyboards import (
     admin_main_keyboard, 
     product_management_keyboard,
+    product_list_menu_keyboard,
     back_to_products_keyboard,
     cancel_keyboard
 )
 
 logger = logging.getLogger(__name__)
+
+# State جدید برای جستجوی محصول
+PRODUCT_SEARCH = 'PRODUCT_SEARCH'
 
 
 async def is_admin(user_id):
@@ -138,36 +142,122 @@ async def product_photo_received(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def list_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """نمایش لیست محصولات"""
-    # ✅ FIX: چک کردن effective_user
+    """نمایش منوی انتخاب نوع لیست محصولات"""
     if not update.effective_user:
-        logger.warning(f"⚠️ Update without user in list_products: {{update}}")
+        logger.warning(f"⚠️ Update without user in list_products: {update}")
         return
     
     if not await is_admin(update.effective_user.id):
         return
     
-    # 🆕 استفاده از Cache
-    db_cache = context.bot_data.get('db_cache')
     db = context.bot_data['db']
+    db_cache = context.bot_data.get('db_cache')
     
-    if db_cache:
-        products = db_cache.get_all_products()
-    else:
-        products = db.get_all_products()
+    products = db_cache.get_all_products() if db_cache else db.get_all_products()
     
     if not products:
         await update.message.reply_text("هیچ محصولی ثبت نشده است.")
         return
     
+    await update.message.reply_text(
+        f"📦 تعداد محصولات: {len(products)}\n\n"
+        "یکی رو انتخاب کنید:",
+        reply_markup=product_list_menu_keyboard()
+    )
+
+
+async def product_list_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """نمایش کل محصولات"""
+    query = update.callback_query
+    await query.answer()
+    
+    db = context.bot_data['db']
+    db_cache = context.bot_data.get('db_cache')
+    
+    products = db_cache.get_all_products() if db_cache else db.get_all_products()
+    
+    if not products:
+        await query.message.reply_text("هیچ محصولی ثبت نشده است.")
+        return
+    
     for product in products:
         product_id, name, desc, photo_id, *_ = product
         
-        # 🆕 استفاده از Cache برای پک‌ها
-        if db_cache:
-            packs = db_cache.get_packs(product_id)
+        packs = db_cache.get_packs(product_id) if db_cache else db.get_packs(product_id)
+        
+        text = f"🏷 {name}\n\n{desc}\n\n"
+        if packs:
+            text += "📦 پک‌های موجود:\n"
+            for pack in packs:
+                _, _, pack_name, quantity, price = pack
+                text += f"• {pack_name}: {quantity} تایی - {price:,.0f} تومان\n"
         else:
-            packs = db.get_packs(product_id)
+            text += "⚠️ هنوز پکی تعریف نشده است."
+        
+        if photo_id:
+            await query.message.reply_photo(
+                photo_id,
+                caption=text,
+                reply_markup=product_management_keyboard(product_id)
+            )
+        else:
+            await query.message.reply_text(
+                text,
+                reply_markup=product_management_keyboard(product_id)
+            )
+
+
+async def product_list_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """شروع جستجوی محصول خاص"""
+    query = update.callback_query
+    await query.answer()
+    
+    await query.message.reply_text(
+        "🔍 اسم مدل محصول رو بنویسید:",
+        reply_markup=cancel_keyboard()
+    )
+    
+    context.user_data['waiting_product_search'] = True
+    return PRODUCT_SEARCH
+
+
+async def product_search_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """دریافت اسم محصول و جستجو"""
+    if update.message.text == "❌ لغو":
+        context.user_data.pop('waiting_product_search', None)
+        await update.message.reply_text("لغو شد.", reply_markup=admin_main_keyboard())
+        return ConversationHandler.END
+    
+    search_text = update.message.text.strip().lower()
+    context.user_data.pop('waiting_product_search', None)
+    
+    db = context.bot_data['db']
+    db_cache = context.bot_data.get('db_cache')
+    
+    products = db_cache.get_all_products() if db_cache else db.get_all_products()
+    
+    # فیلتر کنیم — جستجوی fuzzy (شامل شدن متن جستجو در اسم محصول)
+    matched = []
+    for product in products:
+        product_id, name, desc, photo_id, *_ = product
+        if search_text in name.lower():
+            matched.append(product)
+    
+    if not matched:
+        await update.message.reply_text(
+            f"❌ محصولی با اسم \"{update.message.text}\" پیدا نشد.\n\n"
+            "دوباره تلاش کنید یا اسم دیگه‌ای بنویسید:",
+            reply_markup=cancel_keyboard()
+        )
+        context.user_data['waiting_product_search'] = True
+        return PRODUCT_SEARCH
+    
+    # اگه فقط یکی پیدا شد، مستقیم نشون بده
+    # اگه چند تا پیدا شد، لیستشون نشون بده
+    for product in matched:
+        product_id, name, desc, photo_id, *_ = product
+        
+        packs = db_cache.get_packs(product_id) if db_cache else db.get_packs(product_id)
         
         text = f"🏷 {name}\n\n{desc}\n\n"
         if packs:
@@ -189,6 +279,8 @@ async def list_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 text,
                 reply_markup=product_management_keyboard(product_id)
             )
+    
+    return ConversationHandler.END
 
 
 async def add_pack_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
