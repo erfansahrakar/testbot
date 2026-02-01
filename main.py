@@ -671,8 +671,9 @@ def main():
     application.add_handler(CallbackQueryHandler(reject_payment, pattern="^reject_payment:"))
     
     # 🆕 Handler ارسال شدن سفارش
-    from handlers.order import mark_order_shipped
+    from handlers.order import mark_order_shipped, admin_delete_not_shipped_order
     application.add_handler(CallbackQueryHandler(mark_order_shipped, pattern="^mark_shipped:"))
+    application.add_handler(CallbackQueryHandler(admin_delete_not_shipped_order, pattern="^admin_delete_order:"))
     application.add_handler(CallbackQueryHandler(handle_continue_payment, pattern="^continue_payment:"))
     application.add_handler(CallbackQueryHandler(handle_delete_order, pattern="^delete_order:"))
     
@@ -724,3 +725,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
