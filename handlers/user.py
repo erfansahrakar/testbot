@@ -662,24 +662,29 @@ async def phone_number_received(update: Update, context: ContextTypes.DEFAULT_TY
         context.user_data.pop('editing_for_order', None)
         context.user_data.pop('editing_address', None)
         
-        await update.message.reply_text(
-            "✅ مشخصات شما ویرایش شد!",
-            reply_markup=user_main_keyboard()
-        )
+        await update.message.reply_text("✅ مشخصات شما ویرایش شد!")
         
-        from keyboards import confirm_info_keyboard
-        
-        info_text = "📋 **مشخصات جدید شما:**\n\n"
-        info_text += f"👤 نام: {full_name}\n"
-        info_text += f"📱 موبایل: {phone}\n"
-        info_text += f"📍 آدرس: {address}\n"
-        info_text += "\n❓ **آیا اطلاعات صحیح است؟**"
-        
-        await update.message.reply_text(
-            info_text,
-            parse_mode='Markdown',
-            reply_markup=confirm_info_keyboard()
-        )
+        # ✅ FIX: بعد از ویرایش اطلاعات، فاکتور نهایی دوباره نشون بده
+        order_id = context.user_data.get('confirming_order')
+        if order_id:
+            # سفارش قبلاً وجود داشت (مثلاً از فاکتور نهایی ویرایش زده شده بود)
+            await show_final_invoice(update, context, order_id)
+        else:
+            # سفارش هنوز ثبت نشده — باید اول سفارش ثبت بشه، بعد فاکتور نشون بده
+            # اطلاعات کاربر رو تایید کن و بذار فلوء نرمال ادامه پیدا کنه
+            from keyboards import confirm_info_keyboard
+            
+            info_text = "📋 **مشخصات جدید شما:**\n\n"
+            info_text += f"👤 نام: {full_name}\n"
+            info_text += f"📱 موبایل: {phone}\n"
+            info_text += f"📍 آدرس: {address}\n"
+            info_text += "\n❓ **آیا اطلاعات صحیح است؟**"
+            
+            await update.message.reply_text(
+                info_text,
+                parse_mode='Markdown',
+                reply_markup=confirm_info_keyboard()
+            )
         
         return ConversationHandler.END
     
@@ -688,11 +693,18 @@ async def phone_number_received(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def confirm_user_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """تایید اطلاعات قبلی کاربر"""
+    """تایید اطلاعات قبلی کاربر یا جدید کاربر"""
     query = update.callback_query
     await query.answer("✅ اطلاعات تایید شد")
     
-    await create_order(update, context)
+    # ✅ FIX: اگه سفارش قبلاً وجود داشت (مثلاً از فاکتور نهایی ویرایش زده شده بود)
+    # فاکتور نهایی دوباره نشون بده
+    order_id = context.user_data.get('confirming_order')
+    if order_id:
+        await show_final_invoice(update, context, order_id)
+    else:
+        # سفارش جدیده — سفارش ثبت کن
+        await create_order(update, context)
 
 
 async def edit_user_info_for_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
