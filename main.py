@@ -491,6 +491,17 @@ def main():
         fallbacks=[MessageHandler(filters.Regex("^❌ لغو$"), admin_start)],
     )
     
+    # ✅ جستجوی محصول خاص ادمین
+    from handlers.admin import product_list_all, product_list_search, product_search_received, PRODUCT_SEARCH
+    
+    product_search_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(product_list_search, pattern="^product_list:search$")],
+        states={
+            PRODUCT_SEARCH: [MessageHandler(filters.TEXT & ~filters.COMMAND, product_search_received)],
+        },
+        fallbacks=[MessageHandler(filters.Regex("^❌ لغو$"), admin_start)],
+    )
+    
     edit_product_name_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(edit_product_name_start, pattern="^edit_prod_name:")],
         states={
@@ -618,6 +629,10 @@ def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(add_product_conv)
     application.add_handler(add_pack_conv)
+    application.add_handler(product_search_conv)
+    
+    # ✅ کل محصولات (CallbackQueryHandler نه ConversationHandler چون فقط یه action هست)
+    application.add_handler(CallbackQueryHandler(product_list_all, pattern="^product_list:all$"))
     application.add_handler(edit_product_name_conv)
     application.add_handler(edit_product_desc_conv)
     application.add_handler(edit_product_photo_conv)
