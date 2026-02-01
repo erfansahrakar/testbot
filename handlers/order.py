@@ -1,6 +1,7 @@
 """
 مدیریت سفارشات و پرداخت‌ها
 
+✅ Fixed: اضافه شدن چک برای effective_user
 """
 import json
 import jdatetime
@@ -18,6 +19,9 @@ from keyboards import (
     order_items_removal_keyboard
 )
 from states import OrderStatus
+
+# ✅ Import helper برای چک کردن effective_user (اختیاری - فعلاً چک‌ها inline هستند)
+# from user_validator import require_user, get_user_id
 
 logger = logging.getLogger(__name__)
 
@@ -160,6 +164,11 @@ def create_order_action_keyboard(order_id, status, is_expired):
 
 async def view_user_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """نمایش سفارشات کاربر"""
+    # ✅ چک کردن وجود effective_user
+    if not update.effective_user:
+        logger.warning("⚠️ view_user_orders فراخوانی شد اما effective_user وجود ندارد")
+        return
+    
     user_id = update.effective_user.id
     db = context.bot_data['db']
     
@@ -262,6 +271,12 @@ async def handle_continue_payment(update: Update, context: ContextTypes.DEFAULT_
 async def handle_delete_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """حذف سفارش توسط کاربر"""
     query = update.callback_query
+    
+    # ✅ چک کردن وجود effective_user
+    if not update.effective_user:
+        logger.warning("⚠️ handle_delete_order فراخوانی شد اما effective_user وجود ندارد")
+        await query.answer("❌ خطا در شناسایی کاربر!", show_alert=True)
+        return
     
     order_id = int(query.data.split(":")[1])
     db = context.bot_data['db']
@@ -829,6 +844,16 @@ async def confirm_modified_order(update: Update, context: ContextTypes.DEFAULT_T
 
 async def handle_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """دریافت رسید از کاربر"""
+    # ✅ چک کردن وجود effective_user
+    if not update.effective_user:
+        logger.warning("⚠️ handle_receipt فراخوانی شد اما effective_user وجود ندارد")
+        return
+    
+    # ✅ چک کردن وجود message
+    if not update.message:
+        logger.warning("⚠️ handle_receipt فراخوانی شد اما message وجود ندارد")
+        return
+    
     user_id = update.effective_user.id
     db = context.bot_data['db']
     
