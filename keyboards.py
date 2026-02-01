@@ -124,6 +124,15 @@ def payment_confirmation_keyboard(order_id):
     return InlineKeyboardMarkup(keyboard)
 
 
+def product_list_menu_keyboard():
+    """منوی انتخاب نوع نمایش محصولات ادمین"""
+    keyboard = [
+        [InlineKeyboardButton("📦 کل محصولات", callback_data="product_list:all")],
+        [InlineKeyboardButton("🔍 جستجوی یک محصول خاص", callback_data="product_list:search")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
 def product_management_keyboard(product_id):
     """دکمه‌های مدیریت محصول"""
     keyboard = [
