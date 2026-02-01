@@ -1,15 +1,16 @@
 """
 مدیریت سفارشات و پرداخت‌ها
 
-✅ Fixed: اضافه شدن چک برای effective_user
 """
 import json
 import jdatetime
 import logging
 import pytz
+import html  # ✅ FIX: برای escape کردن Markdown
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
+from telegram.constants import ParseMode  # ✅ FIX: برای HTML parse mode
 from logger import log_payment, log_admin_action
 from config import ADMIN_ID, MESSAGES, CARD_NUMBER, CARD_HOLDER, IBAN_NUMBER
 from keyboards import (
@@ -19,9 +20,6 @@ from keyboards import (
     order_items_removal_keyboard
 )
 from states import OrderStatus
-
-# ✅ Import helper برای چک کردن effective_user (اختیاری - فعلاً چک‌ها inline هستند)
-# from user_validator import require_user, get_user_id
 
 logger = logging.getLogger(__name__)
 
@@ -164,11 +162,6 @@ def create_order_action_keyboard(order_id, status, is_expired):
 
 async def view_user_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """نمایش سفارشات کاربر"""
-    # ✅ چک کردن وجود effective_user
-    if not update.effective_user:
-        logger.warning("⚠️ view_user_orders فراخوانی شد اما effective_user وجود ندارد")
-        return
-    
     user_id = update.effective_user.id
     db = context.bot_data['db']
     
@@ -272,12 +265,6 @@ async def handle_delete_order(update: Update, context: ContextTypes.DEFAULT_TYPE
     """حذف سفارش توسط کاربر"""
     query = update.callback_query
     
-    # ✅ چک کردن وجود effective_user
-    if not update.effective_user:
-        logger.warning("⚠️ handle_delete_order فراخوانی شد اما effective_user وجود ندارد")
-        await query.answer("❌ خطا در شناسایی کاربر!", show_alert=True)
-        return
-    
     order_id = int(query.data.split(":")[1])
     db = context.bot_data['db']
     
@@ -372,7 +359,7 @@ async def send_order_to_admin(context: ContextTypes.DEFAULT_TYPE, order_id: int)
 
 
 async def view_pending_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """نمایش سفارشات در انتظار"""
+    """نمایش سفارشات در انتظار - ✅ FIX: استفاده از HTML به جای Markdown"""
     db = context.bot_data['db']
     orders = db.get_pending_orders()
     
@@ -391,23 +378,36 @@ async def view_pending_orders(update: Update, context: ContextTypes.DEFAULT_TYPE
         full_name = user[3] if len(user) > 3 and user[3] else "ندارد"
         address = user[6] if len(user) > 6 and user[6] else "ندارد"
         
+        # ✅ FIX: Escape کردن داده‌های کاربر
+        safe_first_name = html.escape(first_name)
+        safe_username = html.escape(username) if username != "ندارد" else username
+        safe_phone = html.escape(phone) if phone != "ندارد" else phone
+        safe_full_name = html.escape(full_name) if full_name != "ندارد" else full_name
+        safe_address = html.escape(address) if address != "ندارد" else address
+        
         # بررسی منقضی بودن
         expired = is_order_expired(order)
         
         text = f"📋 سفارش #{order_id}\n\n"
-        text += f"👤 {first_name} (@{username})\n"
-        text += f"📝 نام: {full_name}\n"
-        text += f"📞 {phone}\n"
-        text += f"📍 {address}\n\n"
+        text += f"👤 {safe_first_name}"
+        if safe_username != "ندارد":
+            text += f" (@{safe_username})"
+        text += f"\n📝 نام: {safe_full_name}\n"
+        text += f"📞 {safe_phone}\n"
+        text += f"📍 {safe_address}\n\n"
         
         if expired:
-            text += "⚠️ **این سفارش منقضی شده است!**\n\n"
+            text += "⚠️ <b>این سفارش منقضی شده است!</b>\n\n"
         
         for item in items:
-            text += f"• {item['product']} ({item['pack']}) - {item['quantity']} عدد"
+            # ✅ FIX: Escape کردن نام محصول و پک
+            safe_product = html.escape(item['product'])
+            safe_pack = html.escape(item['pack'])
+            text += f"• {safe_product} ({safe_pack}) - {item['quantity']} عدد"
             
             if item.get('admin_notes'):
-                text += f"\n  📝 {item['admin_notes']}"
+                safe_notes = html.escape(item['admin_notes'])
+                text += f"\n  📝 {safe_notes}"
             
             text += "\n"
         
@@ -423,7 +423,7 @@ async def view_pending_orders(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text(
             text,
             reply_markup=order_confirmation_keyboard(order_id),
-            parse_mode='Markdown'
+            parse_mode=ParseMode.HTML  # ✅ FIX: HTML به جای Markdown
         )
 
 
@@ -844,16 +844,6 @@ async def confirm_modified_order(update: Update, context: ContextTypes.DEFAULT_T
 
 async def handle_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """دریافت رسید از کاربر"""
-    # ✅ چک کردن وجود effective_user
-    if not update.effective_user:
-        logger.warning("⚠️ handle_receipt فراخوانی شد اما effective_user وجود ندارد")
-        return
-    
-    # ✅ چک کردن وجود message
-    if not update.message:
-        logger.warning("⚠️ handle_receipt فراخوانی شد اما message وجود ندارد")
-        return
-    
     user_id = update.effective_user.id
     db = context.bot_data['db']
     
