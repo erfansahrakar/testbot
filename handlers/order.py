@@ -415,7 +415,7 @@ async def view_pending_orders(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     تایید سفارش توسط ادمین
-    ✅ FIX: چک expire اضافه شد
+    ✅ FIX: چک وضعیت + چک expire + try/except روی edit
     """
     query = update.callback_query
     await query.answer("✅ سفارش تایید شد")
@@ -425,6 +425,24 @@ async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # دریافت سفارش
     order = db.get_order(order_id)
+    
+    if not order:
+        await query.answer("❌ سفارش یافت نشد!", show_alert=True)
+        return
+    
+    current_status = order[7]
+    
+    # ✅ اگه قبلاً تایید شده بودن دوباره نباید تایید بشه
+    if current_status == OrderStatus.WAITING_PAYMENT or current_status == OrderStatus.RECEIPT_SENT or current_status == OrderStatus.PAYMENT_CONFIRMED or current_status == OrderStatus.CONFIRMED:
+        await query.answer("⚠️ این سفارش قبلاً تایید شده است!", show_alert=True)
+        logger.warning(f"⚠️ تلاش برای دوبار تایید سفارش {order_id} (وضعیت: {current_status})")
+        return
+    
+    # فقط سفارشات PENDING قابل تایید هستند
+    if current_status != OrderStatus.PENDING:
+        await query.answer(f"⚠️ فقط سفارشات 'در انتظار تایید' قابل تایید هستند!", show_alert=True)
+        logger.warning(f"⚠️ تلاش برای تایید سفارش {order_id} در وضعیت نادرست: {current_status}")
+        return
     
     # ✅ بررسی منقضی بودن
     if is_order_expired(order):
@@ -446,9 +464,16 @@ async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await context.bot.send_message(user_id, message)
     
-    await query.edit_message_text(
-        query.message.text + "\n\n✅ تایید شد - در انتظار پرداخت"
-    )
+    # ✅ try/except روی edit - اگه پیام قبلاً edit شده بودن خطا نده
+    try:
+        await query.edit_message_text(
+            query.message.text + "\n\n✅ تایید شد - در انتظار پرداخت"
+        )
+    except Exception as e:
+        if "Message is not modified" in str(e):
+            logger.info(f"ℹ️ پیام سفارش {order_id} قبلاً edit شده بود")
+        else:
+            logger.error(f"❌ خطا در edit پیام سفارش {order_id}: {e}")
     
     logger.info(f"✅ سفارش {order_id} توسط ادمین تایید شد")
 
@@ -617,7 +642,7 @@ async def remove_item_from_order(update: Update, context: ContextTypes.DEFAULT_T
 async def reject_full_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     رد کامل سفارش
-    ✅ FIX: چک expire اضافه شد
+    ✅ FIX: چک وضعیت + چک expire + try/except روی edit
     """
     query = update.callback_query
     await query.answer("❌ سفارش کامل رد شد")
@@ -626,6 +651,23 @@ async def reject_full_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db = context.bot_data['db']
     
     order = db.get_order(order_id)
+    
+    if not order:
+        await query.answer("❌ سفارش یافت نشد!", show_alert=True)
+        return
+    
+    current_status = order[7]
+    
+    # ✅ اگه قبلاً رد یا تایید شده بودن دوباره نباید رد بشه
+    if current_status == OrderStatus.REJECTED:
+        await query.answer("⚠️ این سفارش قبلاً رد شده است!", show_alert=True)
+        logger.warning(f"⚠️ تلاش برای دوبار رد سفارش {order_id}")
+        return
+    
+    if current_status == OrderStatus.PAYMENT_CONFIRMED or current_status == OrderStatus.CONFIRMED:
+        await query.answer("⚠️ این سفارش قبلاً تایید شده است! نمی‌شه رد کرد.", show_alert=True)
+        logger.warning(f"⚠️ تلاش برای رد سفارش تایید شده {order_id}")
+        return
     
     # ✅ بررسی منقضی بودن
     if is_order_expired(order):
@@ -650,9 +692,16 @@ async def reject_full_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=user_main_keyboard()
     )
     
-    await query.edit_message_text(
-        query.message.text + "\n\n❌ رد شد (کامل)"
-    )
+    # ✅ try/except روی edit
+    try:
+        await query.edit_message_text(
+            query.message.text + "\n\n❌ رد شد (کامل)"
+        )
+    except Exception as e:
+        if "Message is not modified" in str(e):
+            logger.info(f"ℹ️ پیام سفارش {order_id} قبلاً edit شده بود")
+        else:
+            logger.error(f"❌ خطا در edit پیام سفارش {order_id}: {e}")
     
     logger.info(f"❌ سفارش {order_id} توسط ادمین رد شد")
 
@@ -705,7 +754,7 @@ async def back_to_order_review(update: Update, context: ContextTypes.DEFAULT_TYP
 async def confirm_modified_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     تایید سفارش با تغییرات
-    ✅ FIX: چک expire اضافه شد
+    ✅ FIX: چک وضعیت + چک expire + try/except روی edit
     """
     query = update.callback_query
     await query.answer("✅ سفارش با تغییرات تایید شد")
@@ -714,6 +763,18 @@ async def confirm_modified_order(update: Update, context: ContextTypes.DEFAULT_T
     db = context.bot_data['db']
     
     order = db.get_order(order_id)
+    
+    if not order:
+        await query.answer("❌ سفارش یافت نشد!", show_alert=True)
+        return
+    
+    current_status = order[7]
+    
+    # ✅ اگه قبلاً تایید شده بودن دوباره نباید تایید بشه
+    if current_status == OrderStatus.WAITING_PAYMENT or current_status == OrderStatus.RECEIPT_SENT or current_status == OrderStatus.PAYMENT_CONFIRMED or current_status == OrderStatus.CONFIRMED:
+        await query.answer("⚠️ این سفارش قبلاً تایید شده است!", show_alert=True)
+        logger.warning(f"⚠️ تلاش برای دوبار تایید سفارش {order_id} (وضعیت: {current_status})")
+        return
     
     # ✅ بررسی منقضی بودن
     if is_order_expired(order):
@@ -750,9 +811,16 @@ async def confirm_modified_order(update: Update, context: ContextTypes.DEFAULT_T
     
     await context.bot.send_message(user_id, message, parse_mode='Markdown')
     
-    await query.edit_message_text(
-        query.message.text + "\n\n✅ تایید شد با تغییرات - در انتظار پرداخت"
-    )
+    # ✅ try/except روی edit
+    try:
+        await query.edit_message_text(
+            query.message.text + "\n\n✅ تایید شد با تغییرات - در انتظار پرداخت"
+        )
+    except Exception as e:
+        if "Message is not modified" in str(e):
+            logger.info(f"ℹ️ پیام سفارش {order_id} قبلاً edit شده بود")
+        else:
+            logger.error(f"❌ خطا در edit پیام سفارش {order_id}: {e}")
     
     logger.info(f"✅ سفارش {order_id} با تغییرات توسط ادمین تایید شد")
 
@@ -774,6 +842,15 @@ async def handle_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if not user_order:
         await update.message.reply_text("شما سفارش در انتظار پرداختی ندارید.")
+        return
+    
+    # ✅ FIX: چک منقضی بودن قبل از پروسس رسید
+    if is_order_expired(user_order):
+        await update.message.reply_text(
+            "⏰ سفارش شما منقضی شده است!\n\n"
+            "💡 می‌توانید سفارش جدیدی ثبت کنید."
+        )
+        logger.info(f"⚠️ تلاش برای ارسال رسید سفارش منقضی {user_order[0]} توسط کاربر {user_id}")
         return
     
     order_id = user_order[0]
@@ -866,9 +943,43 @@ async def confirm_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     order_id = int(query.data.split(":")[1])
     db = context.bot_data['db']
     
+    # ✅ FIX: چک وضعیت فعلی قبل از تایید
+    order = db.get_order(order_id)
+    if not order:
+        await query.answer("❌ سفارش یافت نشد!", show_alert=True)
+        return
+    
+    current_status = order[7]
+    
+    # اگه قبلاً تایید شده بودن، دوباره نباید تایید بشه
+    if current_status == OrderStatus.PAYMENT_CONFIRMED or current_status == OrderStatus.CONFIRMED:
+        await query.answer(
+            "⚠️ این سفارش قبلاً تایید شده است!",
+            show_alert=True
+        )
+        logger.warning(f"⚠️ تلاش برای دوبار تایید پرداخت سفارش {order_id}")
+        return
+    
+    # فقط اگه وضعیت RECEIPT_SENT باشه تایید کن
+    if current_status != OrderStatus.RECEIPT_SENT:
+        await query.answer(
+            f"⚠️ وضعیت سفارش الان '{current_status}' است.\nفقط رسیدهای 'ارسال شده' قابل تایید هستند.",
+            show_alert=True
+        )
+        logger.warning(f"⚠️ تلاش برای تایید پرداخت سفارش {order_id} در وضعیت نادرست: {current_status}")
+        return
+    
+    # ✅ چک منقضی بودن
+    if is_order_expired(order):
+        await query.answer(
+            "⏰ این سفارش منقضی شده است!",
+            show_alert=True
+        )
+        logger.warning(f"⚠️ تلاش برای تایید پرداخت سفارش منقضی {order_id}")
+        return
+    
     db.update_order_status(order_id, OrderStatus.PAYMENT_CONFIRMED)
     
-    order = db.get_order(order_id)
     user_id = order[1]
     log_payment(order_id, user_id, "confirmed")
     
@@ -883,9 +994,16 @@ async def confirm_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     context.bot_data[f'pending_shipping_{user_id}'] = order_id
     
-    await query.edit_message_caption(
-        caption=query.message.caption + "\n\n✅ تایید شد - منتظر انتخاب نحوه ارسال"
-    )
+    # ✅ try/except روی edit_message_caption
+    try:
+        await query.edit_message_caption(
+            caption=query.message.caption + "\n\n✅ تایید شد - منتظر انتخاب نحوه ارسال"
+        )
+    except Exception as e:
+        if "Message is not modified" in str(e):
+            logger.info(f"ℹ️ کاپشن رسید سفارش {order_id} قبلاً edit شده بود")
+        else:
+            logger.error(f"❌ خطا در edit کاپشن رسید سفارش {order_id}: {e}")
     
     logger.info(f"✅ پرداخت سفارش {order_id} تایید شد")
 
@@ -1020,23 +1138,36 @@ async def mark_order_shipped(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await query.answer("❌ سفارش یافت نشد!", show_alert=True)
         return
     
+    # ✅ اگه قبلاً shipped شده بودن دوباره نباید بشه
+    current_shipping = order[9]
+    if current_shipping == 'shipped':
+        await query.answer("⚠️ این سفارش قبلاً به عنوان ارسال شده ثبت شده است!", show_alert=True)
+        logger.warning(f"⚠️ تلاش برای دوبار shipped کردن سفارش {order_id}")
+        return
+    
     # نحوه ارسال فعلی رو قبل از تغییر ذخیره کن
-    current_shipping = order[9] if order[9] else "نامشخص"
+    current_shipping_method = current_shipping if current_shipping else "نامشخص"
     
     # shipping_method رو به 'shipped' تغییر بده
     # نحوه ارسال اصلی رو توی receipt_photo ذخیره کن با فرمت "shipped|نحوه_ارسال"
     with db.transaction() as cursor:
         cursor.execute(
             "UPDATE orders SET shipping_method = 'shipped', receipt_photo = ? WHERE id = ?",
-            (f"shipped|{current_shipping}", order_id)
+            (f"shipped|{current_shipping_method}", order_id)
         )
     
     await query.answer("✅ سفارش به عنوان ارسال شده ثبت شد!", show_alert=True)
     
-    # متن پیام رو بدون دکمه بذاریم
-    await query.edit_message_text(
-        query.message.text + f"\n\n✅ ارسال شد"
-    )
+    # ✅ try/except روی edit
+    try:
+        await query.edit_message_text(
+            query.message.text + f"\n\n✅ ارسال شد"
+        )
+    except Exception as e:
+        if "Message is not modified" in str(e):
+            logger.info(f"ℹ️ پیام سفارش {order_id} قبلاً edit شده بود")
+        else:
+            logger.error(f"❌ خطا در edit پیام سفارش {order_id}: {e}")
     
     logger.info(f"✅ سفارش {order_id} به عنوان ارسال شده ثبت شد")
 
@@ -1071,13 +1202,51 @@ async def reject_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     order_id = int(query.data.split(":")[1])
     db = context.bot_data['db']
     
+    # ✅ FIX: اول سفارش رو چک کن، بعد وضعیت رو عوض کن
+    order = db.get_order(order_id)
+    if not order:
+        await query.answer("❌ سفارش یافت نشد!", show_alert=True)
+        return
+    
+    current_status = order[7]
+    
+    # ✅ FIX: فقط اگه وضعیت فعلی RECEIPT_SENT باشه رد کن
+    # اگه قبلاً تایید شده بودن (PAYMENT_CONFIRMED) دیگه نباید رد بشه
+    if current_status == OrderStatus.PAYMENT_CONFIRMED or current_status == OrderStatus.CONFIRMED:
+        await query.answer(
+            "⚠️ این سفارش قبلاً تایید شده است!\nنمی‌شه رسیدش رو رد کرد.",
+            show_alert=True
+        )
+        logger.warning(f"⚠️ تلاش برای رد رسید سفارش تایید شده {order_id} (وضعیت: {current_status})")
+        return
+    
+    if current_status != OrderStatus.RECEIPT_SENT:
+        await query.answer(
+            f"⚠️ وضعیت سفارش الان '{current_status}' است.\nفقط رسیدهای 'ارسال شده' قابل رد هستند.",
+            show_alert=True
+        )
+        logger.warning(f"⚠️ تلاش برای رد رسید سفارش {order_id} در وضعیت نادرست: {current_status}")
+        return
+    
+    # ✅ بررسی منقضی بودن قبل از رد
+    if is_order_expired(order):
+        await query.answer(
+            "⏰ این سفارش منقضی شده است!\nنیازی به رد کردن نیست.",
+            show_alert=True
+        )
+        logger.info(f"⚠️ تلاش برای رد رسید سفارش منقضی {order_id}")
+        return
+    
+    # وضعیت رو به WAITING_PAYMENT بذار (مشتری دوباره رسید بفرسته)
     db.update_order_status(order_id, OrderStatus.WAITING_PAYMENT)
     
-    order = db.get_order(order_id)
     user_id = order[1]
     final_price = order[5]
     
-    message = MESSAGES["payment_rejected"] + "\n\n"
+    # ✅ FIX: پیام واضح‌تر به مشتری - اول رد رسید، بعد اطلاعات واریز جدید
+    message = "❌ رسید شما رد شد. لطفاً دوباره تلاش کنید.\n\n"
+    message += "💡 این سفارش هنوز فعال است و شما می‌توانید رسید جدید ارسال کنید.\n\n"
+    message += "─" * 30 + "\n\n"
     message += MESSAGES["order_confirmed"].format(
         amount=f"{final_price:,.0f}",
         card=CARD_NUMBER,
@@ -1087,8 +1256,15 @@ async def reject_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await context.bot.send_message(user_id, message)
     
-    await query.edit_message_caption(
-        caption=query.message.caption + "\n\n❌ رد شد - منتظر رسید جدید"
-    )
+    # ✅ try/except روی edit_message_caption
+    try:
+        await query.edit_message_caption(
+            caption=query.message.caption + "\n\n❌ رد شد - منتظر رسید جدید"
+        )
+    except Exception as e:
+        if "Message is not modified" in str(e):
+            logger.info(f"ℹ️ کاپشن رسید سفارش {order_id} قبلاً edit شده بود")
+        else:
+            logger.error(f"❌ خطا در edit کاپشن رسید سفارش {order_id}: {e}")
     
     logger.info(f"❌ رسید سفارش {order_id} رد شد")
