@@ -29,9 +29,12 @@ def admin_orders_submenu_keyboard():
 
 
 def order_shipped_keyboard(order_id):
-    """دکمه ارسال شد روی فاکتور سفارش ارسال نشده"""
+    """دکمه ارسال شد و حذف روی فاکتور سفارش ارسال نشده"""
     keyboard = [
-        [InlineKeyboardButton("✅ ارسال شد", callback_data=f"mark_shipped:{order_id}")]
+        [
+            InlineKeyboardButton("✅ ارسال شد", callback_data=f"mark_shipped:{order_id}"),
+            InlineKeyboardButton("🗑 حذف", callback_data=f"admin_delete_order:{order_id}")
+        ]
     ]
     return InlineKeyboardMarkup(keyboard)
 
