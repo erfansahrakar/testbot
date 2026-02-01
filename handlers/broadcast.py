@@ -25,6 +25,11 @@ RETRY_ATTEMPTS = 3  # تعداد تلاش مجدد
 
 async def broadcast_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """شروع پیام همگانی"""
+    # ✅ چک کردن effective_user
+    if not update.effective_user:
+        logger.warning("⚠️ broadcast_start called without effective_user")
+        return ConversationHandler.END
+    
     if update.effective_user.id != ADMIN_ID:
         return ConversationHandler.END
     
