@@ -99,6 +99,10 @@ async def handle_text_messages(update: Update, context):
     # 🆕 ایمپورت تابع جدید
     from handlers.order import view_user_orders
     
+    # 🆕 ایمپورت توابع wallet و invoice
+    from handlers.wallet_system import admin_wallet_menu, view_wallet
+    from handlers.admin_invoice import admin_invoice_menu
+    
     # دستورات ادمین
     if user_id == ADMIN_ID:
         if text == "➕ افزودن محصول":
@@ -136,12 +140,19 @@ async def handle_text_messages(update: Update, context):
             return await admin_dashboard(update, context)
         elif text == "🧹 پاکسازی دیتابیس":
             return await manual_cleanup(update, context)
+        # 🆕 دستورات جدید ادمین
+        elif text == "📝 فاکتورزنی":
+            return await admin_invoice_menu(update, context)
+        elif text == "🏦 مدیریت اعتبار":
+            return await admin_wallet_menu(update, context)
     
     # دستورات کاربر
     if text == "🛒 سبد خرید":
         await view_cart(update, context)
     elif text == "📦 سفارشات من":
         await view_user_orders(update, context)
+    elif text == "💰 اعتبار من":
+        await view_wallet(update, context)
     elif text == "📍 آدرس ثبت شده من":
         await view_my_address(update, context)
     elif text == "📞 تماس با ما":
@@ -649,6 +660,34 @@ def main():
         fallbacks=[MessageHandler(filters.Regex("^❌ لغو$"), user_start)],
     )
     
+    # 🆕 ConversationHandler های سیستم Wallet
+    from handlers.wallet_system import (
+        admin_charge_wallet_start, admin_charge_wallet_user_received, admin_charge_wallet_amount_received
+    )
+    
+    wallet_charge_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(admin_charge_wallet_start, pattern="^wallet_admin:charge$")],
+        states={
+            WALLET_CHARGE_USER_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_charge_wallet_user_received)],
+            WALLET_CHARGE_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_charge_wallet_amount_received)],
+        },
+        fallbacks=[MessageHandler(filters.Regex("^❌ لغو$"), admin_start)],
+    )
+    
+    # 🆕 ConversationHandler های سیستم فاکتورزنی
+    from handlers.admin_invoice import (
+        invoice_new_start, invoice_user_id_received, invoice_quantity_received
+    )
+    
+    invoice_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(invoice_new_start, pattern="^invoice:new$")],
+        states={
+            INVOICE_USER_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, invoice_user_id_received)],
+            INVOICE_ITEM_QUANTITY: [MessageHandler(filters.TEXT & ~filters.COMMAND, invoice_quantity_received)],
+        },
+        fallbacks=[MessageHandler(filters.Regex("^❌ لغو$"), admin_start)],
+    )
+    
     # اضافه کردن handler ها
     application.add_handler(CommandHandler("start", start))
     application.add_handler(add_product_conv)
@@ -669,6 +708,10 @@ def main():
     application.add_handler(edit_address_conv)
     application.add_handler(edit_user_info_conv)
     application.add_handler(final_edit_conv)
+    
+    # 🆕 ConversationHandler های جدید
+    application.add_handler(wallet_charge_conv)
+    application.add_handler(invoice_conv)
     
     application.add_handler(CallbackQueryHandler(handle_dashboard_callback, pattern="^dash:"))
     
@@ -728,6 +771,31 @@ def main():
     application.add_handler(CallbackQueryHandler(cancel_broadcast, pattern="^cancel_broadcast$"))
     
     application.add_handler(CallbackQueryHandler(handle_analytics_report, pattern="^analytics:"))
+    
+    # 🆕 CallbackQuery handlers برای سیستم Wallet
+    from handlers.wallet_system import (
+        view_wallet, view_wallet_history, use_wallet_in_order,
+        admin_wallet_menu, admin_wallet_report
+    )
+    
+    application.add_handler(CallbackQueryHandler(view_wallet, pattern="^wallet:view$"))
+    application.add_handler(CallbackQueryHandler(view_wallet_history, pattern="^wallet:history$"))
+    application.add_handler(CallbackQueryHandler(use_wallet_in_order, pattern="^use_wallet:"))
+    application.add_handler(CallbackQueryHandler(admin_wallet_menu, pattern="^wallet_admin:menu$"))
+    application.add_handler(CallbackQueryHandler(admin_wallet_report, pattern="^wallet_admin:report$"))
+    
+    # 🆕 CallbackQuery handlers برای سیستم فاکتورزنی
+    from handlers.admin_invoice import (
+        invoice_add_product, invoice_product_selected, invoice_pack_selected,
+        invoice_view_draft, invoice_finalize, invoice_cancel
+    )
+    
+    application.add_handler(CallbackQueryHandler(invoice_add_product, pattern="^invoice_add:"))
+    application.add_handler(CallbackQueryHandler(invoice_product_selected, pattern="^invoice_prod:"))
+    application.add_handler(CallbackQueryHandler(invoice_pack_selected, pattern="^invoice_pack:"))
+    application.add_handler(CallbackQueryHandler(invoice_view_draft, pattern="^invoice_view:"))
+    application.add_handler(CallbackQueryHandler(invoice_finalize, pattern="^invoice_finalize:"))
+    application.add_handler(CallbackQueryHandler(invoice_cancel, pattern="^invoice_cancel:"))
     
     # Message هندلرها
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_messages))
