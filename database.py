@@ -298,6 +298,35 @@ class Database:
             )
         """)
         
+        # ✅ NEW: جدول سیستم اعتبار (Wallet)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS wallet (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER UNIQUE NOT NULL,
+                balance REAL DEFAULT 0,
+                expires_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+            )
+        """)
+        
+        # ✅ NEW: جدول تراکنش‌های اعتبار
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS wallet_transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                amount REAL NOT NULL,
+                transaction_type TEXT NOT NULL,
+                description TEXT,
+                order_id INTEGER,
+                admin_id INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+                FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE SET NULL
+            )
+        """)
+        
         conn.commit()
         self._create_indexes()
         self._migrate_existing_data()
@@ -340,6 +369,13 @@ class Database:
                 conn.commit()
                 logger.info("✅ Migration سفارشات قدیمی انجام شد")
             
+            # ✅ NEW: اضافه کردن ستون wallet_used برای ذخیره مبلغ استفاده شده از اعتبار
+            if 'wallet_used' not in columns:
+                logger.info("🔄 اضافه کردن ستون wallet_used...")
+                cursor.execute("ALTER TABLE orders ADD COLUMN wallet_used REAL DEFAULT 0")
+                conn.commit()
+                logger.info("✅ ستون wallet_used اضافه شد")
+            
             logger.info("✅ بررسی migration‌ها تمام شد")
         except Exception as e:
             logger.error(f"❌ خطا در مهاجرت: {e}")
@@ -361,6 +397,9 @@ class Database:
             "CREATE INDEX IF NOT EXISTS idx_packs_product_id ON packs(product_id)",
             "CREATE INDEX IF NOT EXISTS idx_temp_discount_user ON temp_discount_codes(user_id)",
             "CREATE INDEX IF NOT EXISTS idx_discount_usage_user_code ON discount_usage(user_id, discount_code)",
+            "CREATE INDEX IF NOT EXISTS idx_wallet_user_id ON wallet(user_id)",
+            "CREATE INDEX IF NOT EXISTS idx_wallet_transactions_user ON wallet_transactions(user_id)",
+            "CREATE INDEX IF NOT EXISTS idx_wallet_transactions_order ON wallet_transactions(order_id)",
         ]
         
         for index_sql in indexes:
@@ -987,6 +1026,208 @@ class Database:
             stats['most_popular'] = "هنوز داده‌ای نیست"
         
         return stats
+    
+    # ==================== سیستم اعتبار (Wallet) ====================
+    
+    def get_wallet_balance(self, user_id: int):
+        """دریافت موجودی اعتبار کاربر"""
+        try:
+            conn = self._get_conn()
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                SELECT balance, expires_at 
+                FROM wallet 
+                WHERE user_id = ?
+            """, (user_id,))
+            
+            result = cursor.fetchone()
+            
+            if result:
+                balance, expires_at = result
+                # چک انقضا
+                if expires_at:
+                    expiry_date = datetime.fromisoformat(expires_at)
+                    if expiry_date < datetime.now():
+                        # اعتبار منقضی شده
+                        return (0, expires_at)
+                return (balance, expires_at)
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"خطا در دریافت موجودی اعتبار {user_id}: {e}")
+            return None
+    
+    def add_wallet_balance(self, user_id: int, amount: float, description: str, admin_id: int = None, expires_at: str = None):
+        """افزودن اعتبار به کیف پول کاربر"""
+        try:
+            with self.transaction() as cursor:
+                # چک وجود رکورد wallet
+                cursor.execute("SELECT id, balance FROM wallet WHERE user_id = ?", (user_id,))
+                wallet = cursor.fetchone()
+                
+                if wallet:
+                    # آپدیت موجودی
+                    new_balance = wallet[1] + amount
+                    cursor.execute("""
+                        UPDATE wallet 
+                        SET balance = ?, 
+                            expires_at = COALESCE(?, expires_at),
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE user_id = ?
+                    """, (new_balance, expires_at, user_id))
+                else:
+                    # ایجاد رکورد جدید
+                    cursor.execute("""
+                        INSERT INTO wallet (user_id, balance, expires_at)
+                        VALUES (?, ?, ?)
+                    """, (user_id, amount, expires_at))
+                
+                # ثبت تراکنش
+                cursor.execute("""
+                    INSERT INTO wallet_transactions 
+                    (user_id, amount, transaction_type, description, admin_id)
+                    VALUES (?, ?, 'credit', ?, ?)
+                """, (user_id, amount, description, admin_id))
+                
+                log_database_operation("WALLET", "add_balance", user_id)
+                self._invalidate_cache(f"wallet:{user_id}")
+                
+                return True
+        
+        except Exception as e:
+            logger.error(f"خطا در افزودن اعتبار {user_id}: {e}")
+            return False
+    
+    def deduct_wallet(self, user_id: int, amount: float, description: str, order_id: int = None):
+        """کسر اعتبار از کیف پول"""
+        try:
+            with self.transaction() as cursor:
+                cursor.execute("SELECT balance FROM wallet WHERE user_id = ?", (user_id,))
+                wallet = cursor.fetchone()
+                
+                if not wallet or wallet[0] < amount:
+                    return False
+                
+                new_balance = wallet[0] - amount
+                
+                cursor.execute("""
+                    UPDATE wallet 
+                    SET balance = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE user_id = ?
+                """, (new_balance, user_id))
+                
+                # ثبت تراکنش
+                cursor.execute("""
+                    INSERT INTO wallet_transactions 
+                    (user_id, amount, transaction_type, description, order_id)
+                    VALUES (?, ?, 'debit', ?, ?)
+                """, (user_id, -amount, description, order_id))
+                
+                log_database_operation("WALLET", "deduct", user_id)
+                self._invalidate_cache(f"wallet:{user_id}")
+                
+                return True
+        
+        except Exception as e:
+            logger.error(f"خطا در کسر اعتبار {user_id}: {e}")
+            return False
+    
+    def get_wallet_transactions(self, user_id: int, limit: int = 10):
+        """دریافت تراکنش‌های اعتبار کاربر"""
+        try:
+            conn = self._get_conn()
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                SELECT id, amount, transaction_type, description, created_at
+                FROM wallet_transactions
+                WHERE user_id = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+            """, (user_id, limit))
+            
+            return cursor.fetchall()
+        
+        except Exception as e:
+            logger.error(f"خطا در دریافت تراکنش‌ها {user_id}: {e}")
+            return []
+    
+    def update_order_wallet_payment(self, order_id: int, wallet_amount: float, new_final_price: float):
+        """به‌روزرسانی سفارش بعد از استفاده از اعتبار"""
+        try:
+            with self.transaction() as cursor:
+                cursor.execute("""
+                    UPDATE orders
+                    SET wallet_used = ?,
+                        final_price = ?
+                    WHERE id = ?
+                """, (wallet_amount, new_final_price, order_id))
+                
+                log_database_operation("UPDATE", "orders", order_id)
+                self._invalidate_cache(f"order:{order_id}")
+                
+                return True
+        
+        except Exception as e:
+            logger.error(f"خطا در به‌روزرسانی سفارش {order_id}: {e}")
+            return False
+    
+    def get_wallet_statistics(self):
+        """دریافت آمار سیستم اعتبار"""
+        try:
+            conn = self._get_conn()
+            cursor = conn.cursor()
+            
+            stats = {}
+            
+            cursor.execute("SELECT COUNT(*) FROM wallet WHERE balance > 0")
+            stats['total_users'] = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT SUM(balance) FROM wallet")
+            total = cursor.fetchone()[0]
+            stats['total_balance'] = total if total else 0
+            
+            cursor.execute("SELECT AVG(balance) FROM wallet WHERE balance > 0")
+            avg = cursor.fetchone()[0]
+            stats['avg_balance'] = avg if avg else 0
+            
+            cursor.execute("SELECT MAX(balance) FROM wallet")
+            max_bal = cursor.fetchone()[0]
+            stats['max_balance'] = max_bal if max_bal else 0
+            
+            cursor.execute("""
+                SELECT COUNT(*) 
+                FROM wallet_transactions 
+                WHERE DATE(created_at) = DATE('now')
+            """)
+            stats['today_transactions'] = cursor.fetchone()[0]
+            
+            cursor.execute("""
+                SELECT SUM(amount) 
+                FROM wallet_transactions 
+                WHERE DATE(created_at) = DATE('now') 
+                AND transaction_type = 'credit'
+            """)
+            charges = cursor.fetchone()[0]
+            stats['today_charges'] = charges if charges else 0
+            
+            cursor.execute("""
+                SELECT SUM(ABS(amount))
+                FROM wallet_transactions 
+                WHERE DATE(created_at) = DATE('now') 
+                AND transaction_type = 'debit'
+            """)
+            withdrawals = cursor.fetchone()[0]
+            stats['today_withdrawals'] = withdrawals if withdrawals else 0
+            
+            return stats
+        
+        except Exception as e:
+            logger.error(f"خطا در دریافت آمار اعتبار: {e}")
+            return {}
     
     @property
     def cursor(self):
