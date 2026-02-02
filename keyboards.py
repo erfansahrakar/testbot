@@ -10,7 +10,6 @@ def admin_main_keyboard():
         ["🎛 داشبورد", "📊 آمار"],
         ["➕ افزودن محصول", "📦 لیست محصولات"],
         ["📦 سفارشات", "💳 تایید پرداخت‌ها"],
-        ["📝 فاکتورزنی", "🏦 مدیریت اعتبار"],
         ["🎁 مدیریت تخفیف‌ها", "📢 پیام همگانی"],
         ["📈 گزارش‌های تحلیلی", "💾 بکاپ دستی"],
         ["🧹 پاکسازی دیتابیس"]
@@ -44,7 +43,7 @@ def user_main_keyboard():
     """منوی اصلی کاربر"""
     keyboard = [
         ["🛒 سبد خرید", "📦 سفارشات من"],
-        ["💰 اعتبار من", "📍 آدرس ثبت شده من"],
+        ["📍 آدرس ثبت شده من"],
         ["📞 تماس با ما", "ℹ️ راهنما"]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
@@ -97,7 +96,6 @@ def cart_keyboard(cart_items):
         keyboard.append(row)
     
     keyboard.append([InlineKeyboardButton("🎁 کد تخفیف دارم", callback_data="apply_discount")])
-    keyboard.append([InlineKeyboardButton("💰 مشاهده اعتبار من", callback_data="wallet:view")])
     keyboard.append([InlineKeyboardButton("✅ نهایی کردن سفارش", callback_data="finalize_order")])
     keyboard.append([InlineKeyboardButton("🗑 خالی کردن سبد", callback_data="clear_cart")])
     
