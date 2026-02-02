@@ -75,6 +75,15 @@ async def handle_text_messages(update: Update, context):
         logger.warning("⚠️ handle_text_messages called without effective_user or message")
         return
     
+    # ✅ اگر کاربر داخل یک conversation هست، این handler نباید اجرا بشه
+    # چون ConversationHandler باید پیام رو مدیریت کنه
+    if context.user_data and any(key in context.user_data for key in [
+        'editing_product_id', 'editing_pack_id', 'new_product_name',
+        'broadcasting', 'creating_discount', 'finalizing_order'
+    ]):
+        # کاربر داخل یک مکالمه است، این handler رو رد می‌کنیم
+        return
+    
     text = update.message.text
     user_id = update.effective_user.id
     
