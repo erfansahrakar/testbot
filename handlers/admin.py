@@ -251,7 +251,6 @@ async def product_search_received(update: Update, context: ContextTypes.DEFAULT_
         return ConversationHandler.END
     
     search_text = update.message.text.strip().lower()
-    context.user_data.pop('waiting_product_search', None)
     
     db = context.bot_data['db']
     db_cache = context.bot_data.get('db_cache')
@@ -271,7 +270,7 @@ async def product_search_received(update: Update, context: ContextTypes.DEFAULT_
             "دوباره تلاش کنید یا اسم دیگه‌ای بنویسید:",
             reply_markup=cancel_keyboard()
         )
-        context.user_data['waiting_product_search'] = True
+        # ✅ ادامه بده - هنوز توی conversation هستیم
         return PRODUCT_SEARCH
     
     # ✅ FIX: اگه محصولات زیاد باشن، فقط ۱۰ تا اول نشون بده
@@ -316,7 +315,15 @@ async def product_search_received(update: Update, context: ContextTypes.DEFAULT_
             logger.error(f"❌ خطا در ارسال محصول {product_id}: {e}")
             continue
     
-    return ConversationHandler.END
+    # ✅ FIX: بعد از نمایش محصولات، یه پیام بدیم که می‌تونه دوباره جستجو کنه یا لغو کنه
+    await update.message.reply_text(
+        "✅ محصولات نمایش داده شد.\n\n"
+        "💡 می‌توانید دوباره اسم محصول دیگری بنویسید یا 'لغو ❌' کنید:",
+        reply_markup=cancel_keyboard()
+    )
+    
+    # ✅ ادامه بده - هنوز توی conversation هستیم
+    return PRODUCT_SEARCH
 
 
 async def add_pack_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
