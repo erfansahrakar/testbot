@@ -171,6 +171,10 @@ async def product_list_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
+    if not query.message:
+        logger.error("❌ query.message is None in product_list_all")
+        return
+    
     db = context.bot_data['db']
     db_cache = context.bot_data.get('db_cache')
     
@@ -179,6 +183,16 @@ async def product_list_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not products:
         await query.message.reply_text("هیچ محصولی ثبت نشده است.")
         return
+    
+    # ✅ FIX: اگه محصولات زیاد باشن، فقط ۱۰ تا اول نشون بده
+    MAX_PRODUCTS = 10
+    if len(products) > MAX_PRODUCTS:
+        await query.message.reply_text(
+            f"⚠️ تعداد محصولات: {len(products)}\n\n"
+            f"برای جلوگیری از timeout، فقط {MAX_PRODUCTS} محصول اول نمایش داده می‌شود.\n\n"
+            f"💡 برای مشاهده محصول خاص، از 'جستجوی یک محصول خاص' استفاده کنید."
+        )
+        products = products[:MAX_PRODUCTS]
     
     for product in products:
         product_id, name, desc, photo_id, *_ = product
@@ -194,23 +208,31 @@ async def product_list_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             text += "⚠️ هنوز پکی تعریف نشده است."
         
-        if photo_id:
-            await query.message.reply_photo(
-                photo_id,
-                caption=text,
-                reply_markup=product_management_keyboard(product_id)
-            )
-        else:
-            await query.message.reply_text(
-                text,
-                reply_markup=product_management_keyboard(product_id)
-            )
+        try:
+            if photo_id:
+                await query.message.reply_photo(
+                    photo_id,
+                    caption=text,
+                    reply_markup=product_management_keyboard(product_id)
+                )
+            else:
+                await query.message.reply_text(
+                    text,
+                    reply_markup=product_management_keyboard(product_id)
+                )
+        except Exception as e:
+            logger.error(f"❌ خطا در ارسال محصول {product_id}: {e}")
+            continue
 
 
 async def product_list_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """شروع جستجوی محصول خاص"""
     query = update.callback_query
     await query.answer()
+    
+    if not query.message:
+        logger.error("❌ query.message is None in product_list_search")
+        return
     
     await query.message.reply_text(
         "🔍 اسم مدل محصول رو بنویسید:",
@@ -252,6 +274,16 @@ async def product_search_received(update: Update, context: ContextTypes.DEFAULT_
         context.user_data['waiting_product_search'] = True
         return PRODUCT_SEARCH
     
+    # ✅ FIX: اگه محصولات زیاد باشن، فقط ۱۰ تا اول نشون بده
+    MAX_PRODUCTS = 10
+    if len(matched) > MAX_PRODUCTS:
+        await update.message.reply_text(
+            f"🔍 تعداد محصولات پیدا شده: {len(matched)}\n\n"
+            f"فقط {MAX_PRODUCTS} محصول اول نمایش داده می‌شود.\n\n"
+            f"💡 اسم دقیق‌تری بنویسید برای فیلتر بهتر."
+        )
+        matched = matched[:MAX_PRODUCTS]
+    
     # اگه فقط یکی پیدا شد، مستقیم نشون بده
     # اگه چند تا پیدا شد، لیستشون نشون بده
     for product in matched:
@@ -268,17 +300,21 @@ async def product_search_received(update: Update, context: ContextTypes.DEFAULT_
         else:
             text += "⚠️ هنوز پکی تعریف نشده است."
         
-        if photo_id:
-            await update.message.reply_photo(
-                photo_id,
-                caption=text,
-                reply_markup=product_management_keyboard(product_id)
-            )
-        else:
-            await update.message.reply_text(
-                text,
-                reply_markup=product_management_keyboard(product_id)
-            )
+        try:
+            if photo_id:
+                await update.message.reply_photo(
+                    photo_id,
+                    caption=text,
+                    reply_markup=product_management_keyboard(product_id)
+                )
+            else:
+                await update.message.reply_text(
+                    text,
+                    reply_markup=product_management_keyboard(product_id)
+                )
+        except Exception as e:
+            logger.error(f"❌ خطا در ارسال محصول {product_id}: {e}")
+            continue
     
     return ConversationHandler.END
 
