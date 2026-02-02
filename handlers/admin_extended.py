@@ -68,7 +68,16 @@ async def edit_product_name_received(update: Update, context: ContextTypes.DEFAU
         context.user_data.clear()
         return ConversationHandler.END
     
-    product_id = context.user_data['editing_product_id']
+    # ✅ بررسی وجود editing_product_id
+    product_id = context.user_data.get('editing_product_id')
+    if product_id is None:
+        await update.message.reply_text(
+            "❌ خطا: اطلاعات محصول یافت نشد. لطفاً دوباره تلاش کنید.",
+            reply_markup=admin_main_keyboard()
+        )
+        context.user_data.clear()
+        return ConversationHandler.END
+    
     new_name = update.message.text
     
     db = context.bot_data['db']
@@ -106,7 +115,16 @@ async def edit_product_desc_received(update: Update, context: ContextTypes.DEFAU
         context.user_data.clear()
         return ConversationHandler.END
     
-    product_id = context.user_data['editing_product_id']
+    # ✅ بررسی وجود editing_product_id
+    product_id = context.user_data.get('editing_product_id')
+    if product_id is None:
+        await update.message.reply_text(
+            "❌ خطا: اطلاعات محصول یافت نشد. لطفاً دوباره تلاش کنید.",
+            reply_markup=admin_main_keyboard()
+        )
+        context.user_data.clear()
+        return ConversationHandler.END
+    
     new_desc = update.message.text
     
     db = context.bot_data['db']
@@ -143,7 +161,16 @@ async def edit_product_photo_received(update: Update, context: ContextTypes.DEFA
         await update.message.reply_text("❌ لطفاً یک عکس ارسال کنید!")
         return EDIT_PRODUCT_PHOTO
     
-    product_id = context.user_data['editing_product_id']
+    # ✅ بررسی وجود editing_product_id
+    product_id = context.user_data.get('editing_product_id')
+    if product_id is None:
+        await update.message.reply_text(
+            "❌ خطا: اطلاعات محصول یافت نشد. لطفاً دوباره تلاش کنید.",
+            reply_markup=admin_main_keyboard()
+        )
+        context.user_data.clear()
+        return ConversationHandler.END
+    
     photo_id = update.message.photo[-1].file_id
     
     db = context.bot_data['db']
@@ -221,9 +248,18 @@ async def edit_pack_name_received(update: Update, context: ContextTypes.DEFAULT_
         context.user_data.clear()
         return ConversationHandler.END
     
+    # ✅ بررسی وجود editing_pack_id
+    pack_id = context.user_data.get('editing_pack_id')
+    if pack_id is None:
+        await update.message.reply_text(
+            "❌ خطا: اطلاعات پک یافت نشد. لطفاً دوباره تلاش کنید.",
+            reply_markup=admin_main_keyboard()
+        )
+        context.user_data.clear()
+        return ConversationHandler.END
+    
     context.user_data['new_pack_name'] = update.message.text
     
-    pack_id = context.user_data['editing_pack_id']
     db = context.bot_data['db']
     pack = db.get_pack(pack_id)
     
@@ -242,11 +278,20 @@ async def edit_pack_quantity_received(update: Update, context: ContextTypes.DEFA
         context.user_data.clear()
         return ConversationHandler.END
     
+    # ✅ بررسی وجود editing_pack_id
+    pack_id = context.user_data.get('editing_pack_id')
+    if pack_id is None:
+        await update.message.reply_text(
+            "❌ خطا: اطلاعات پک یافت نشد. لطفاً دوباره تلاش کنید.",
+            reply_markup=admin_main_keyboard()
+        )
+        context.user_data.clear()
+        return ConversationHandler.END
+    
     try:
         quantity = int(update.message.text)
         context.user_data['new_pack_quantity'] = quantity
         
-        pack_id = context.user_data['editing_pack_id']
         db = context.bot_data['db']
         pack = db.get_pack(pack_id)
         
@@ -269,10 +314,19 @@ async def edit_pack_price_received(update: Update, context: ContextTypes.DEFAULT
         context.user_data.clear()
         return ConversationHandler.END
     
+    # ✅ بررسی وجود editing_pack_id
+    pack_id = context.user_data.get('editing_pack_id')
+    if pack_id is None:
+        await update.message.reply_text(
+            "❌ خطا: اطلاعات پک یافت نشد. لطفاً دوباره تلاش کنید.",
+            reply_markup=admin_main_keyboard()
+        )
+        context.user_data.clear()
+        return ConversationHandler.END
+    
     try:
         price = float(update.message.text.replace(',', ''))
         
-        pack_id = context.user_data['editing_pack_id']
         db = context.bot_data['db']
         
         db.update_pack(
