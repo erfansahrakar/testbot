@@ -282,6 +282,65 @@ async def handle_delete_order(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 # ==================== ADMIN HANDLERS ====================
 
+async def send_order_to_admin(context: ContextTypes.DEFAULT_TYPE, order_id: int):
+    """ارسال سفارش به ادمین"""
+    db = context.bot_data['db']
+    order = db.get_order(order_id)
+    
+    if not order:
+        logger.error(f"❌ سفارش {order_id} یافت نشد برای ارسال به ادمین")
+        return
+    
+    order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at, expires_at, *_ = order
+    items = json.loads(items_json)
+    user = db.get_user(user_id)
+    
+    first_name = user[2] if len(user) > 2 else "کاربر"
+    username = user[1] if len(user) > 1 and user[1] else "ندارد"
+    phone = user[4] if len(user) > 4 and user[4] else "ندارد"
+    full_name = user[3] if len(user) > 3 and user[3] else "ندارد"
+    address = user[6] if len(user) > 6 and user[6] else "ندارد"
+    
+    text = f"🆕 سفارش جدید شماره {order_id_val}\n\n"
+    text += f"👤 کاربر: {first_name} (@{username})\n"
+    text += f"📝 نام: {full_name}\n"
+    text += f"📞 تلفن: {phone}\n"
+    text += f"📍 آدرس: {address}\n\n"
+    text += "📦 آیتم‌ها:\n"
+    
+    for item in items:
+        text += f"• {item['product']} - {item['pack']}\n"
+        text += f"  تعداد: {item['quantity']} عدد\n"
+        
+        if item.get('admin_notes'):
+            text += f"  📝 توضیحات: {item['admin_notes']}\n"
+        
+        text += f"  قیمت: {item['price']:,.0f} تومان\n\n"
+    
+    text += f"💰 جمع کل: {total_price:,.0f} تومان\n"
+    
+    if discount_amount > 0:
+        text += f"🎁 تخفیف: {discount_amount:,.0f} تومان\n"
+        if discount_code:
+            text += f"🎫 کد تخفیف: {discount_code}\n"
+        text += f"💳 مبلغ نهایی: {final_price:,.0f} تومان\n"
+    
+    text += f"\n📅 تاریخ: {format_jalali_datetime(created_at)}\n"
+    text += f"⏰ انقضا: {format_jalali_datetime(expires_at)}"
+    
+    try:
+        # ✅ FIX: اضافه کردن parse_mode=None
+        await context.bot.send_message(
+            ADMIN_ID,
+            text,
+            reply_markup=order_confirmation_keyboard(order_id_val),
+            parse_mode=None
+        )
+        logger.info(f"✅ سفارش {order_id_val} به ادمین ارسال شد")
+    except Exception as e:
+        logger.error(f"❌ خطا در ارسال سفارش {order_id_val} به ادمین: {e}")
+
+
 async def view_pending_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """نمایش سفارشات در انتظار تایید"""
     db = context.bot_data['db']
@@ -1056,6 +1115,65 @@ async def reject_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     
     logger.info(f"❌ رسید سفارش {order_id} رد شد")
+
+
+async def handle_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """دریافت رسید از کاربر"""
+    user_id = update.effective_user.id
+    db = context.bot_data['db']
+    
+    orders = db.get_waiting_payment_orders()
+    user_order = None
+    
+    for order in orders:
+        if order[1] == user_id:
+            user_order = order
+            break
+    
+    if not user_order:
+        # ✅ FIX: اضافه کردن parse_mode=None
+        await update.message.reply_text("شما سفارش در انتظار پرداختی ندارید.", parse_mode=None)
+        return
+    
+    order_id = user_order[0]
+    photo = update.message.photo[-1]
+    
+    db.add_receipt(order_id, photo.file_id)
+    db.update_order_status(order_id, OrderStatus.RECEIPT_SENT)
+    
+    # ✅ FIX: اضافه کردن parse_mode=None
+    await update.message.reply_text(MESSAGES["receipt_received"], parse_mode=None)
+    
+    order = db.get_order(order_id)
+    items = json.loads(order[2])
+    final_price = order[5]
+    user = db.get_user(user_id)
+    
+    first_name = user[2] if len(user) > 2 else "کاربر"
+    username = user[1] if len(user) > 1 and user[1] else "ندارد"
+    
+    text = f"💳 رسید سفارش شماره {order_id}\n\n"
+    text += f"👤 {first_name} (@{username})\n"
+    text += f"💰 مبلغ: {final_price:,.0f} تومان\n\n"
+    
+    for item in items:
+        text += f"• {item['product']} ({item['pack']}) - {item['quantity']} عدد"
+        
+        if item.get('admin_notes'):
+            text += f"\n  📝 {item['admin_notes']}"
+        
+        text += "\n"
+    
+    # ✅ FIX: اضافه کردن parse_mode=None
+    await context.bot.send_photo(
+        ADMIN_ID,
+        photo.file_id,
+        caption=text,
+        reply_markup=payment_confirmation_keyboard(order_id),
+        parse_mode=None
+    )
+    
+    logger.info(f"📷 رسید سفارش {order_id} دریافت شد")
 
 
 async def remove_item_from_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
