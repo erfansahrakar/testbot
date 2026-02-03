@@ -1,7 +1,6 @@
 """
 هندلرهای مربوط به کاربران
 
-✅ Fixed: اضافه شدن چک برای effective_user
 """
 import json
 import logging
@@ -21,9 +20,6 @@ from keyboards import (
     view_cart_keyboard,
     cancel_keyboard
 )
-
-# ✅ Import helper برای چک کردن effective_user (اختیاری - فعلاً چک‌ها inline هستند)
-# from user_validator import require_user, get_user_id
 
 logger = logging.getLogger(__name__)
 
@@ -49,11 +45,6 @@ async def _update_cart_item_quantity(update: Update, context: ContextTypes.DEFAU
     Returns:
         tuple: (success: bool, new_quantity: int, message: str)
     """
-    # ✅ چک کردن وجود effective_user
-    if not update.effective_user:
-        logger.warning("⚠️ _update_cart_item_quantity فراخوانی شد اما effective_user وجود ندارد")
-        return False, 0, "❌ خطا در شناسایی کاربر!"
-    
     query = update.callback_query
     user_id = update.effective_user.id
     db = context.bot_data['db']
@@ -122,11 +113,6 @@ async def _refresh_cart_display(update: Update, context: ContextTypes.DEFAULT_TY
     Returns:
         bool: آیا سبد خالی است؟
     """
-    # ✅ چک کردن وجود effective_user
-    if not update.effective_user:
-        logger.warning("⚠️ refresh_cart_display فراخوانی شد اما effective_user وجود ندارد")
-        return True
-    
     query = update.callback_query
     user_id = update.effective_user.id
     db = context.bot_data['db']
@@ -856,10 +842,6 @@ async def create_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=user_main_keyboard()
             )
             
-            # ارسال به ادمین
-            from handlers.order import send_order_to_admin
-            await send_order_to_admin(context, order_id)
-            
             logger.info(f"✅ سفارش {order_id} با موفقیت ثبت شد")
             
         except Exception as e:
@@ -869,6 +851,14 @@ async def create_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "❌ خطا در ثبت سفارش! لطفاً دوباره تلاش کنید.",
                 reply_markup=user_main_keyboard()
             )
+            return
+        
+        # ✅ FIX: send_order_to_admin جداگانه - اگه خطا بده سفارش خراب نشه
+        try:
+            from handlers.order import send_order_to_admin
+            await send_order_to_admin(context, order_id)
+        except Exception as e:
+            logger.error(f"❌ خطا در ارسال سفارش به ادمین: {e}")
 
 
 async def create_order_from_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -962,9 +952,6 @@ async def create_order_from_message(update: Update, context: ContextTypes.DEFAUL
                 reply_markup=user_main_keyboard()
             )
             
-            from handlers.order import send_order_to_admin
-            await send_order_to_admin(context, order_id)
-            
             logger.info(f"✅ سفارش {order_id} با موفقیت ثبت شد")
             
         except Exception as e:
@@ -973,6 +960,14 @@ async def create_order_from_message(update: Update, context: ContextTypes.DEFAUL
                 "❌ خطا در ثبت سفارش! لطفاً دوباره تلاش کنید.",
                 reply_markup=user_main_keyboard()
             )
+            return
+        
+        # ✅ FIX: send_order_to_admin جداگانه - اگه خطا بده سفارش خراب نشه
+        try:
+            from handlers.order import send_order_to_admin
+            await send_order_to_admin(context, order_id)
+        except Exception as e:
+            logger.error(f"❌ خطا در ارسال سفارش به ادمین: {e}")
 
 
 # ==================== SHIPPING & INVOICE ====================
@@ -1030,7 +1025,7 @@ async def show_final_invoice(update, context, order_id):
     if not order:
         return
     
-    order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at, expires_at = order
+    order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at, expires_at, *_ = order
     items = json.loads(items_json)
     user = db.get_user(user_id)
     
