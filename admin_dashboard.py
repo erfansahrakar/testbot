@@ -234,8 +234,11 @@ async def show_users_management(update: Update, context: ContextTypes.DEFAULT_TY
     
     keyboard = [
         [
-            InlineKeyboardButton("🔍 جستجو", callback_data="dash:search_user"),
-            InlineKeyboardButton("📊 گزارش", callback_data="dash:user_report")
+            InlineKeyboardButton("📋 لیست کامل", callback_data="dash:users_list:0"),
+            InlineKeyboardButton("📊 گزارش", callback_data="dash:users_report_all")
+        ],
+        [
+            InlineKeyboardButton("🔍 جستجو", callback_data="dash:search_user")
         ],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="dash:main")]
     ]
@@ -249,6 +252,171 @@ async def show_users_management(update: Update, context: ContextTypes.DEFAULT_TY
     except Exception as e:
         if "Message is not modified" in str(e):
             await query.answer("✅ اطلاعات به‌روز است", show_alert=False)
+        else:
+            raise
+
+
+async def show_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 0):
+    """نمایش لیست کاربران با صفحه‌بندی"""
+    query = update.callback_query
+    await query.answer()
+    
+    db = context.bot_data['db']
+    
+    # دریافت همه کاربران
+    all_users = db.get_all_users()
+    
+    if not all_users:
+        await query.edit_message_text("هیچ کاربری ثبت نشده است.")
+        return
+    
+    # تنظیمات صفحه‌بندی
+    USERS_PER_PAGE = 5
+    total_users = len(all_users)
+    total_pages = (total_users + USERS_PER_PAGE - 1) // USERS_PER_PAGE
+    
+    # اطمینان از معتبر بودن شماره صفحه
+    page = max(0, min(page, total_pages - 1))
+    
+    # محاسبه ایندکس‌ها
+    start_idx = page * USERS_PER_PAGE
+    end_idx = min(start_idx + USERS_PER_PAGE, total_users)
+    
+    # کاربران صفحه فعلی
+    page_users = all_users[start_idx:end_idx]
+    
+    text = f"👥 **لیست کاربران** \\(صفحه {page + 1} از {total_pages}\\)\n"
+    text += f"📊 مجموع: {total_users} کاربر\n"
+    text += "═" * 30 + "\n\n"
+    
+    for idx, user in enumerate(page_users, start=start_idx + 1):
+        user_id = user[0]
+        username = user[1]
+        first_name = user[2]
+        
+        # ایجاد نام نمایشی
+        safe_name = escape_markdown(first_name) if first_name else f"User {user_id}"
+        
+        if username:
+            display = f"@{escape_markdown(username)}"
+        else:
+            display = safe_name
+        
+        # لینک به چت کاربر (برای ادمین)
+        chat_link = f"[{display}](tg://user?id={user_id})"
+        
+        text += f"**{idx}\\.** {chat_link}\n"
+        text += f"   └ ID: `{user_id}`\n\n"
+    
+    # ساخت دکمه‌های صفحه‌بندی
+    keyboard = []
+    
+    # دکمه‌های قبل/بعد
+    nav_row = []
+    if page > 0:
+        nav_row.append(InlineKeyboardButton("◀️ قبلی", callback_data=f"dash:users_list:{page-1}"))
+    if page < total_pages - 1:
+        nav_row.append(InlineKeyboardButton("بعدی ▶️", callback_data=f"dash:users_list:{page+1}"))
+    
+    if nav_row:
+        keyboard.append(nav_row)
+    
+    # دکمه گزارش
+    keyboard.append([InlineKeyboardButton("📊 گزارش کامل", callback_data="dash:users_report_all")])
+    
+    # دکمه بازگشت
+    keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="dash:users")])
+    
+    try:
+        await query.edit_message_text(
+            text,
+            parse_mode='MarkdownV2',
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            disable_web_page_preview=True
+        )
+    except Exception as e:
+        if "Message is not modified" in str(e):
+            await query.answer("✅ در این صفحه هستید", show_alert=False)
+        else:
+            raise
+
+
+async def show_users_report_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """گزارش کامل همه کاربران"""
+    query = update.callback_query
+    await query.answer("در حال تهیه گزارش...", show_alert=False)
+    
+    db = context.bot_data['db']
+    
+    # دریافت همه کاربران
+    all_users = db.get_all_users()
+    
+    if not all_users:
+        await query.edit_message_text("هیچ کاربری ثبت نشده است.")
+        return
+    
+    text = f"📊 **گزارش کامل کاربران**\n"
+    text += f"تعداد کل: {len(all_users)} نفر\n"
+    text += "═" * 30 + "\n\n"
+    
+    for idx, user in enumerate(all_users, start=1):
+        user_id = user[0]
+        username = user[1]
+        first_name = user[2]
+        full_name = user[3] if len(user) > 3 else None
+        phone = user[4] if len(user) > 4 else None
+        address = user[6] if len(user) > 6 else None
+        shop_name = user[7] if len(user) > 7 else None
+        
+        # نام نمایشی
+        safe_name = escape_markdown(first_name) if first_name else f"User {user_id}"
+        
+        if username:
+            display = f"@{escape_markdown(username)}"
+        else:
+            display = safe_name
+        
+        # لینک به چت
+        chat_link = f"[{display}](tg://user?id={user_id})"
+        
+        text += f"**{idx}\\.** {chat_link}\n"
+        text += f"├ ID: `{user_id}`\n"
+        
+        if full_name:
+            text += f"├ نام کامل: {escape_markdown(full_name)}\n"
+        
+        if shop_name:
+            text += f"├ نام فروشگاه: {escape_markdown(shop_name)}\n"
+        
+        if phone:
+            text += f"├ موبایل: `{phone}`\n"
+        
+        if address:
+            addr_short = address[:30] + "..." if len(address) > 30 else address
+            text += f"└ آدرس: {escape_markdown(addr_short)}\n"
+        else:
+            text += f"└ آدرس: ثبت نشده\n"
+        
+        text += "\n"
+        
+        # محدودیت طول پیام تلگرام (4096 کاراکتر)
+        if len(text) > 3500:
+            text += f"\n⚠️ **تعداد بیشتر از {idx} کاربر وجود دارد\\.**\n"
+            text += "برای مشاهده کامل از لیست صفحه\\-بندی استفاده کنید\\."
+            break
+    
+    keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data="dash:users_list:0")]]
+    
+    try:
+        await query.edit_message_text(
+            text,
+            parse_mode='MarkdownV2',
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            disable_web_page_preview=True
+        )
+    except Exception as e:
+        if "Message is not modified" in str(e):
+            await query.answer("✅ گزارش به‌روز است", show_alert=False)
         else:
             raise
 
@@ -493,6 +661,12 @@ async def handle_dashboard_callback(update: Update, context: ContextTypes.DEFAUL
         await show_full_stats(update, context)
     elif data == "dash:users":
         await show_users_management(update, context)
+    elif data.startswith("dash:users_list:"):
+        # صفحه‌بندی لیست کاربران
+        page = int(data.split(":")[-1])
+        await show_users_list(update, context, page)
+    elif data == "dash:users_report_all":
+        await show_users_report_all(update, context)
     elif data == "dash:health":
         await show_health_status(update, context)
     elif data == "dash:cache":
