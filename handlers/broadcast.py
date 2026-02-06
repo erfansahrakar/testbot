@@ -169,8 +169,7 @@ async def confirm_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         log_error("Broadcast", f"خطا در دریافت لیست کاربران: {e}")
         await query.edit_message_text(
-            "❌ خطا در دریافت لیست کاربران!",
-            reply_markup=admin_main_keyboard()
+            "❌ خطا در دریافت لیست کاربران!"
         )
         return
     
@@ -283,8 +282,7 @@ async def confirm_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await progress_msg.edit_text(
         report,
-        parse_mode='Markdown',
-        reply_markup=admin_main_keyboard()
+        parse_mode='Markdown'
     )
     
     # پاک کردن داده‌های موقت
