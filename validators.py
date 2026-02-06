@@ -221,3 +221,50 @@ def safe_float(value: str, default: float = 0.0) -> float:
 # همیشه از prepared statements استفاده کنید:
 # ✅ cursor.execute("INSERT INTO t (c) VALUES (?)", (value,))
 # ❌ cursor.execute(f"INSERT INTO t (c) VALUES ('{value}')")
+
+
+def validate_order_data(full_name: str, phone: str, address: str) -> Tuple[bool, str]:
+    """
+    اعتبارسنجی کامل داده‌های سفارش
+    
+    Args:
+        full_name: نام کامل
+        phone: شماره تلفن
+        address: آدرس
+    
+    Returns:
+        (is_valid, error_message)
+    
+    Example:
+        >>> validate_order_data("علی احمدی", "09123456789", "تهران، خیابان ولیعصر")
+        (True, "")
+    """
+    # بررسی نام
+    if not full_name or len(full_name.strip()) < 3:
+        return False, "❌ نام باید حداقل 3 کاراکتر باشد"
+    
+    if len(full_name) > 100:
+        return False, "❌ نام نباید بیش از 100 کاراکتر باشد"
+    
+    # حذف فضای خالی اضافی
+    full_name = full_name.strip()
+    
+    # بررسی شماره تلفن
+    phone = phone.strip().replace(' ', '').replace('-', '')
+    is_valid, error = Validators.validate_phone(phone)
+    if not is_valid:
+        return False, error
+    
+    # بررسی آدرس
+    if not address or len(address.strip()) < 10:
+        return False, "❌ آدرس باید حداقل 10 کاراکتر باشد"
+    
+    if len(address) > 500:
+        return False, "❌ آدرس نباید بیش از 500 کاراکتر باشد"
+    
+    # بررسی کاراکترهای مشکوک
+    suspicious_chars = ['<', '>', '{', '}', '[', ']', '`']
+    if any(char in full_name or char in address for char in suspicious_chars):
+        return False, "❌ کاراکترهای نامعتبر در ورودی"
+    
+    return True, ""
