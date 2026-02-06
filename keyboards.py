@@ -332,3 +332,43 @@ def quantity_keyboard(product_id, pack_id):
     keyboard.append([InlineKeyboardButton("🛍 مشاهده سبد خرید", callback_data="view_cart")])
     
     return InlineKeyboardMarkup(keyboard)
+
+
+def product_list_pagination_keyboard(current_page: int, total_pages: int):
+    """
+    کیبورد pagination برای لیست محصولات
+    
+    Args:
+        current_page: صفحه فعلی (1-based)
+        total_pages: تعداد کل صفحات
+    
+    Returns:
+        InlineKeyboardMarkup
+    """
+    keyboard = []
+    
+    # دکمه‌های صفحه قبل/بعد
+    row = []
+    
+    if current_page > 1:
+        row.append(InlineKeyboardButton(
+            "⬅️ قبلی",
+            callback_data=f"products_page:{current_page - 1}"
+        ))
+    
+    # نمایش شماره صفحه
+    row.append(InlineKeyboardButton(
+        f"📄 {current_page}/{total_pages}",
+        callback_data="page_info"
+    ))
+    
+    if current_page < total_pages:
+        row.append(InlineKeyboardButton(
+            "➡️ بعدی",
+            callback_data=f"products_page:{current_page + 1}"
+        ))
+    
+    if row:
+        keyboard.append(row)
+    
+    return InlineKeyboardMarkup(keyboard)
