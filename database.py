@@ -402,6 +402,40 @@ class Database:
         cursor.execute("SELECT * FROM products ORDER BY created_at DESC")
         return cursor.fetchall()
     
+    def get_products_paginated(self, page: int = 1, per_page: int = 10):
+        """
+        دریافت محصولات با Pagination
+        
+        Args:
+            page: شماره صفحه (1-based)
+            per_page: تعداد محصولات در هر صفحه
+        
+        Returns:
+            tuple: (products, total_count, total_pages)
+        """
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        
+        # دریافت تعداد کل محصولات
+        cursor.execute("SELECT COUNT(*) FROM products")
+        total_count = cursor.fetchone()[0]
+        
+        # محاسبه تعداد صفحات
+        total_pages = (total_count + per_page - 1) // per_page
+        
+        # محاسبه offset
+        offset = (page - 1) * per_page
+        
+        # دریافت محصولات این صفحه
+        cursor.execute(
+            "SELECT * FROM products ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            (per_page, offset)
+        )
+        
+        products = cursor.fetchall()
+        
+        return products, total_count, total_pages
+    
     def update_product_name(self, product_id: int, name: str):
         with self.transaction() as cursor:
             cursor.execute("UPDATE products SET name = ? WHERE id = ?", (name, product_id))
