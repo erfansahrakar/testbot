@@ -2,6 +2,7 @@
 هندلرهای مربوط به کاربران
 
 """
+from helpers import require_user, require_callback_query
 import json
 import logging
 import asyncio
@@ -29,6 +30,8 @@ cart_locks = {}  # به ازای هر کاربر یک Lock
 
 # ==================== HELPER FUNCTIONS ====================
 
+@require_callback_query
+@require_user
 async def _update_cart_item_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE, 
                                      cart_id: int, delta: int):
     """
@@ -105,6 +108,8 @@ async def _update_cart_item_quantity(update: Update, context: ContextTypes.DEFAU
             return False, 0, "❌ خطا در بروزرسانی سبد!"
 
 
+@require_callback_query
+@require_user
 async def _refresh_cart_display(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     بروزرسانی نمایش سبد خرید
@@ -196,6 +201,7 @@ async def _refresh_cart_display(update: Update, context: ContextTypes.DEFAULT_TY
 
 # ==================== USER START & PRODUCT DISPLAY ====================
 
+@require_user
 async def user_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """پیام خوش‌آمدگویی به کاربر"""
     user = update.effective_user
@@ -287,6 +293,8 @@ async def show_product(update: Update, context: ContextTypes.DEFAULT_TYPE, produ
 # ==================== CART OPERATIONS ====================
 
 @rate_limit(max_requests=20, window_seconds=60)
+@require_callback_query
+@require_user
 async def handle_pack_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     انتخاب پک - افزودن مستقیم به سبد
@@ -361,6 +369,8 @@ async def handle_pack_selection(update: Update, context: ContextTypes.DEFAULT_TY
         await query.answer(alert_text, show_alert=True)
 
 
+@require_callback_query
+@require_user
 async def view_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """نمایش سبد خرید"""
     user_id = update.effective_user.id
@@ -452,6 +462,8 @@ async def cart_decrease(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _refresh_cart_display(update, context)
 
 
+@require_callback_query
+@require_user
 async def remove_from_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     حذف از سبد خرید
@@ -481,6 +493,8 @@ async def remove_from_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _refresh_cart_display(update, context)
 
 
+@require_callback_query
+@require_user
 async def clear_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     خالی کردن سبد خرید
@@ -511,6 +525,8 @@ async def clear_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ==================== ORDER FINALIZATION ====================
 
 @action_limit('order', max_requests=3, window_seconds=3600)
+@require_callback_query
+@require_user
 async def finalize_order_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """شروع نهایی کردن سفارش"""
     query = update.callback_query
@@ -614,6 +630,7 @@ async def address_text_received(update: Update, context: ContextTypes.DEFAULT_TY
     return PHONE_NUMBER
 
 
+@require_user
 async def phone_number_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """دریافت شماره تماس و ذخیره نهایی - با اعتبارسنجی"""
     if update.message.text == "❌ لغو":
@@ -730,6 +747,8 @@ async def use_old_address(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await create_order(update, context)
 
 
+@require_callback_query
+@require_user
 async def use_new_address(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """وارد کردن آدرس جدید"""
     query = update.callback_query
@@ -747,6 +766,8 @@ async def use_new_address(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== ORDER CREATION ====================
 
+@require_callback_query
+@require_user
 async def create_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     ✅ FIXED باگ 4: ایجاد سفارش با Transaction
@@ -861,6 +882,7 @@ async def create_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"❌ خطا در ارسال سفارش به ادمین: {e}")
 
 
+@require_user
 async def create_order_from_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     ✅ FIXED باگ 4: ایجاد سفارش از پیام با Transaction
@@ -972,12 +994,16 @@ async def create_order_from_message(update: Update, context: ContextTypes.DEFAUL
 
 # ==================== SHIPPING & INVOICE ====================
 
+@require_callback_query
+@require_user
 async def back_to_packs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """بازگشت به انتخاب پک"""
     query = update.callback_query
     await query.answer("دکمه‌های پک همیشه نمایش داده می‌شوند!", show_alert=True)
 
 
+@require_callback_query
+@require_user
 async def handle_shipping_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """انتخاب نحوه ارسال"""
     query = update.callback_query
@@ -1087,6 +1113,8 @@ async def show_final_invoice(update, context, order_id):
         )
 
 
+@require_callback_query
+@require_user
 async def final_confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """تایید نهایی سفارش"""
     query = update.callback_query
@@ -1120,6 +1148,8 @@ async def final_confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
 
 
+@require_callback_query
+@require_user
 async def final_edit_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """ویرایش اطلاعات سفارش"""
     query = update.callback_query
@@ -1137,6 +1167,7 @@ async def final_edit_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== ADDRESS MANAGEMENT ====================
 
+@require_user
 async def view_my_address(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """نمایش آدرس ثبت شده"""
     user_id = update.effective_user.id
