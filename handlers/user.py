@@ -371,6 +371,7 @@ async def handle_pack_selection(update: Update, context: ContextTypes.DEFAULT_TY
 
 @require_callback_query
 @require_user
+@require_user
 async def view_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """نمایش سبد خرید"""
     user_id = update.effective_user.id
