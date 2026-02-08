@@ -373,7 +373,7 @@ async def handle_pack_selection(update: Update, context: ContextTypes.DEFAULT_TY
 @require_user
 @require_user
 async def view_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """نمایش سبد خرید"""
+    """نمایش سبد خرید - پشتیبانی کامل از callback و message"""
     user_id = update.effective_user.id
     db = context.bot_data['db']
     
@@ -417,6 +417,8 @@ async def view_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+@require_callback_query
+@require_user
 async def cart_increase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     ✅ REFACTORED: افزایش تعداد در سبد خرید
@@ -440,6 +442,8 @@ async def cart_increase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _refresh_cart_display(update, context)
 
 
+@require_callback_query
+@require_user
 async def cart_decrease(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     ✅ REFACTORED: کاهش تعداد در سبد خرید
