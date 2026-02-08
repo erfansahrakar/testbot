@@ -2,6 +2,7 @@
 مدیریت حذف و ویرایش پک‌ها توسط ادمین
 این فایل باید به همراه admin.py و admin_extended.py استفاده شود
 """
+from helpers import require_user, require_callback_query
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
 from config import ADMIN_ID
@@ -13,6 +14,8 @@ async def is_admin(user_id):
     return user_id == ADMIN_ID
 
 
+@require_callback_query
+@require_user
 async def manage_packs_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """نمایش منوی مدیریت پک‌ها"""
     query = update.callback_query
@@ -80,6 +83,8 @@ async def manage_packs_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+@require_callback_query
+@require_user
 async def confirm_delete_pack(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """درخواست تایید حذف پک"""
     query = update.callback_query
@@ -121,6 +126,8 @@ async def confirm_delete_pack(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
 
 
+@require_callback_query
+@require_user
 async def delete_pack_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """حذف نهایی پک"""
     query = update.callback_query
@@ -174,6 +181,8 @@ async def delete_pack_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await manage_packs_menu(update_copy, context_copy)
 
 
+@require_callback_query
+@require_user
 async def bulk_delete_packs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """حذف چندتایی پک‌ها"""
     query = update.callback_query
