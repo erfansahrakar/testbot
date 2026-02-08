@@ -2,7 +2,6 @@
 مدیریت سفارشات و پرداخت‌ها
 
 """
-from helpers import require_user, require_callback_query
 import json
 import jdatetime
 import logging
@@ -159,7 +158,6 @@ def create_order_action_keyboard(order_id, status, is_expired):
 
 # ==================== USER HANDLERS ====================
 
-@require_user
 async def view_user_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """نمایش سفارشات کاربر"""
     user_id = update.effective_user.id
@@ -259,8 +257,6 @@ async def handle_continue_payment(update: Update, context: ContextTypes.DEFAULT_
     await query.edit_message_text(message, parse_mode=None)
 
 
-@require_callback_query
-@require_user
 async def handle_delete_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """حذف سفارش توسط کاربر"""
     query = update.callback_query
@@ -1121,7 +1117,6 @@ async def reject_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"❌ رسید سفارش {order_id} رد شد")
 
 
-@require_user
 async def handle_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """دریافت رسید از کاربر"""
     user_id = update.effective_user.id
