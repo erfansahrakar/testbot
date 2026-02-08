@@ -3,15 +3,110 @@
 ✅ Safe message editing
 ✅ Error handling wrappers
 ✅ Utility functions
+✅ NEW: Decorators for effective_user and callback_query checks
 """
 import logging
 import asyncio
 from typing import Optional, Union
-from telegram import Message, InlineKeyboardMarkup
+from functools import wraps
+from telegram import Message, InlineKeyboardMarkup, Update
 from telegram.error import BadRequest, TelegramError
+from telegram.ext import ContextTypes
 
 logger = logging.getLogger(__name__)
 
+
+# ==================== 🆕 NEW: DECORATORS ====================
+
+def require_user(func):
+    """
+    🆕 Decorator برای اطمینان از وجود effective_user
+    
+    این decorator خطای NoneType رو برطرف می‌کنه!
+    
+    استفاده:
+        @require_user
+        async def my_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            user_id = update.effective_user.id  # حالا safe هست!
+            # ...
+    """
+    @wraps(func)
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
+        if not update.effective_user:
+            logger.warning(f"⚠️ {func.__name__} called without effective_user")
+            
+            # سعی در ارسال پیام خطا به کاربر
+            if update.effective_message:
+                try:
+                    await update.effective_message.reply_text(
+                        "⚠️ خطایی رخ داد. لطفاً دوباره /start کنید."
+                    )
+                except:
+                    pass
+            
+            return None
+        
+        return await func(update, context, *args, **kwargs)
+    
+    return wrapper
+
+
+def require_callback_query(func):
+    """
+    🆕 Decorator برای اطمینان از وجود callback_query
+    
+    استفاده:
+        @require_callback_query
+        async def my_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            query = update.callback_query  # حالا safe هست!
+            # ...
+    """
+    @wraps(func)
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
+        if not update.callback_query:
+            logger.warning(f"⚠️ {func.__name__} called without callback_query")
+            return None
+        
+        return await func(update, context, *args, **kwargs)
+    
+    return wrapper
+
+
+def safe_get_user_id(update: Update) -> Optional[int]:
+    """
+    🆕 دریافت user_id به صورت ایمن
+    
+    این تابع از همه روش‌های ممکن برای پیدا کردن user_id استفاده می‌کنه
+    
+    Returns:
+        user_id یا None
+    
+    Example:
+        user_id = safe_get_user_id(update)
+        if not user_id:
+            return  # کاربر شناسایی نشد
+    """
+    if not update:
+        return None
+    
+    # روش 1: از effective_user
+    if update.effective_user:
+        return update.effective_user.id
+    
+    # روش 2: از message.from_user
+    if update.message and update.message.from_user:
+        return update.message.from_user.id
+    
+    # روش 3: از callback_query.from_user
+    if update.callback_query and update.callback_query.from_user:
+        return update.callback_query.from_user.id
+    
+    # هیچ کدوم کار نکرد
+    logger.warning("⚠️ Could not extract user_id from update")
+    return None
+
+
+# ==================== EXISTING FUNCTIONS ====================
 
 async def safe_edit_message(
     message: Message,
