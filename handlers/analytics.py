@@ -3,7 +3,6 @@
 ✅ FIX باگ 11: استفاده از aggregation SQL و جدول آماری
 ✅ بهینه‌سازی کوئری‌ها برای داده‌های زیاد
 """
-from helpers import require_user, require_callback_query
 import io
 import json
 from datetime import datetime, timedelta
@@ -544,8 +543,6 @@ def create_conversion_chart(analytics):
 
 # ==================== Telegram Handlers ====================
 
-@require_callback_query
-@require_user
 async def send_analytics_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """منوی گزارش‌های تحلیلی"""
     if update.effective_user.id != ADMIN_ID:
@@ -561,8 +558,6 @@ async def send_analytics_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
 
 
-@require_callback_query
-@require_user
 async def handle_analytics_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """مدیریت درخواست گزارش"""
     query = update.callback_query
