@@ -482,7 +482,19 @@ async def reject_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def modify_order_items(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """نمایش صفحه مدیریت و ویرایش آیتم‌های سفارش"""
+    # ✅ چک کردن query
+    if not update or not update.callback_query:
+        logger.error("❌ modify_order_items: update or callback_query is None")
+        return
+    
     query = update.callback_query
+    
+    # ✅ چک کردن query.data
+    if not query.data:
+        logger.error("❌ modify_order_items: query.data is None")
+        await query.answer("❌ خطا در پردازش!", show_alert=True)
+        return
+    
     await query.answer()
     
     try:
@@ -533,6 +545,11 @@ async def modify_order_items(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
         text += "بعد از اعمال تغییرات، سفارش را تایید کنید."
         
+        # ✅ چک کردن query.message قبل از edit
+        if not query.message:
+            logger.error("❌ modify_order_items: query.message is None")
+            return
+        
         await query.edit_message_text(
             text,
             parse_mode='Markdown',
@@ -543,7 +560,10 @@ async def modify_order_items(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     except Exception as e:
         logger.error(f"❌ Error in modify_order_items: {e}", exc_info=True)
-        await query.answer("❌ خطا رخ داد!", show_alert=True)
+        try:
+            await query.answer("❌ خطا رخ داد!", show_alert=True)
+        except:
+            pass
 
 
 async def handle_item_removal(update: Update, context: ContextTypes.DEFAULT_TYPE):
