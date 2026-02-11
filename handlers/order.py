@@ -480,6 +480,72 @@ async def reject_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"❌ سفارش {order_id} رد شد")
 
 
+async def modify_order_items(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """نمایش صفحه مدیریت و ویرایش آیتم‌های سفارش"""
+    query = update.callback_query
+    await query.answer()
+    
+    try:
+        order_id = int(query.data.split(":")[1])
+        db = context.bot_data['db']
+        order = db.get_order(order_id)
+        
+        if not order:
+            await query.answer("❌ سفارش یافت نشد!", show_alert=True)
+            return
+        
+        # استخراج اطلاعات سفارش
+        order_id_val, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at, expires_at, *_ = order
+        
+        try:
+            items = json.loads(items_json)
+        except json.JSONDecodeError as e:
+            logger.error(f"❌ JSON decode error: {e}")
+            await query.answer("❌ خطا در خواندن آیتم‌ها!", show_alert=True)
+            return
+        
+        if not items:
+            await query.answer("❌ سفارش بدون آیتم!", show_alert=True)
+            return
+        
+        # نمایش لیست آیتم‌ها با دکمه‌های مدیریت
+        text = f"📋 **مدیریت آیتم‌های سفارش #{order_id}**\n\n"
+        text += "🛍 آیتم‌های سفارش:\n\n"
+        
+        for idx, item in enumerate(items):
+            text += f"{idx + 1}. {item['product']} - {item['pack']}\n"
+            text += f"   🔢 تعداد: {item['quantity']} عدد\n"
+            
+            # نمایش توضیحات ادمین اگر وجود داشت
+            if item.get('admin_notes'):
+                text += f"   📝 توضیحات: {item['admin_notes']}\n"
+            
+            text += f"   💰 {item['price']:,.0f} تومان\n\n"
+        
+        text += f"💳 **جمع کل: {final_price:,.0f} تومان**\n\n"
+        
+        # پیام راهنما
+        if len(items) == 1:
+            text += "⚠️ **این آخرین آیتم است!**\n"
+            text += "برای رد کامل سفارش از دکمه مربوطه استفاده کنید.\n\n"
+        else:
+            text += "💡 می‌توانید تعداد را تغییر دهید یا آیتم‌ها را حذف کنید.\n\n"
+        
+        text += "بعد از اعمال تغییرات، سفارش را تایید کنید."
+        
+        await query.edit_message_text(
+            text,
+            parse_mode='Markdown',
+            reply_markup=order_items_removal_keyboard(order_id, items)
+        )
+        
+        logger.info(f"✏️ ادمین صفحه مدیریت آیتم‌های سفارش {order_id} را باز کرد")
+    
+    except Exception as e:
+        logger.error(f"❌ Error in modify_order_items: {e}", exc_info=True)
+        await query.answer("❌ خطا رخ داد!", show_alert=True)
+
+
 async def handle_item_removal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """حذف آیتم از سفارش"""
     query = update.callback_query
