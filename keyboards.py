@@ -108,6 +108,9 @@ def order_confirmation_keyboard(order_id):
         [
             InlineKeyboardButton("✅ تایید", callback_data=f"confirm_order:{order_id}"),
             InlineKeyboardButton("❌ رد", callback_data=f"reject_order:{order_id}")
+        ],
+        [
+            InlineKeyboardButton("✏️ مدیریت آیتم‌ها", callback_data=f"modify_order:{order_id}")
         ]
     ]
     return InlineKeyboardMarkup(keyboard)
