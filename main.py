@@ -385,7 +385,8 @@ def main():
         remove_item_from_order, reject_full_order, back_to_order_review,
         confirm_modified_order,
         handle_continue_payment,
-        handle_delete_order
+        handle_delete_order,
+        modify_order_items
     )
     
     from handlers.order_management import (
@@ -702,6 +703,7 @@ def main():
     
     application.add_handler(CallbackQueryHandler(confirm_order, pattern="^confirm_order:"))
     application.add_handler(CallbackQueryHandler(reject_order, pattern="^reject_order:"))
+    application.add_handler(CallbackQueryHandler(modify_order_items, pattern="^modify_order:"))
     application.add_handler(CallbackQueryHandler(remove_item_from_order, pattern="^remove_item:"))
     application.add_handler(CallbackQueryHandler(reject_full_order, pattern="^reject_full:"))
     application.add_handler(CallbackQueryHandler(back_to_order_review, pattern="^back_to_order:"))
