@@ -14,6 +14,7 @@ from logger import log_user_action, log_order, log_discount_usage
 from states import FULL_NAME, ADDRESS_TEXT, PHONE_NUMBER
 from rate_limiter import rate_limit, action_limit
 from keyboards import (
+from message_customizer import message_customizer
     user_main_keyboard,
     product_inline_keyboard,
     quantity_keyboard,
@@ -891,7 +892,7 @@ async def create_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             # نمایش پیام موفقیت
             await query.message.reply_text(
-                MESSAGES["order_received"],
+                message_customizer.get_message("order_received"),
                 reply_markup=user_main_keyboard()
             )
             
@@ -1001,7 +1002,7 @@ async def create_order_from_message(update: Update, context: ContextTypes.DEFAUL
             db._invalidate_cache("stats:")
             
             await update.message.reply_text(
-                MESSAGES["order_received"],
+                message_customizer.get_message("order_received"),
                 reply_markup=user_main_keyboard()
             )
             
