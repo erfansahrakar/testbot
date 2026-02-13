@@ -849,11 +849,6 @@ def main():
     
     application.add_handler(CallbackQueryHandler(back_to_admin_handler, pattern="^back_to_admin$"))
     
-    # Message هندلرها
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_messages))
-    application.add_handler(MessageHandler(filters.PHOTO, handle_photos))
-
-    
     # ✅ Feature #4: Export handlers
     if EXPORT_AVAILABLE:
         try:
@@ -879,6 +874,10 @@ def main():
             logger.info("✅ Message customizer handlers added")
         except Exception as e:
             logger.error(f"❌ Failed to add message customizer handlers: {e}")
+    
+    # ✅ Message هندلرها - باید بعد از همه ConversationHandlerها باشه
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_messages))
+    application.add_handler(MessageHandler(filters.PHOTO, handle_photos))
     
     # ✅ Error handler با set_error برای monitoring
     async def error_handler_with_monitoring(update, context):
