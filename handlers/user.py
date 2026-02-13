@@ -1171,10 +1171,11 @@ async def final_confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE
     context.bot_data.pop(f'pending_shipping_{user_id}', None)
     context.user_data.pop('confirming_order', None)
     
+    # ✅ استفاده از message_customizer برای پیام سفارشی‌سازی شده
+    order_message = message_customizer.get_message("order_received", name=update.effective_user.first_name or "کاربر")
+    
     await query.message.reply_text(
-        "✅ **سفارش شما ثبت نهایی شد!**\n\n"
-        "📦 سفارش شما به‌زودی ارسال خواهد شد.\n\n"
-        "🙏 از خرید شما سپاسگزاریم!",
+        order_message,
         parse_mode='Markdown',
         reply_markup=user_main_keyboard()
     )
