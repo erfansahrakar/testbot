@@ -130,14 +130,30 @@ async def customize_messages_menu(update: Update, context: ContextTypes.DEFAULT_
         InlineKeyboardButton("🔙 بازگشت", callback_data="back_to_admin")
     ])
     
-    await update.message.reply_text(
+    text = (
         "⚙️ **سفارشی‌سازی پیام‌ها**\n\n"
         "📝 = پیش‌فرض\n"
         "✏️ = سفارشی شده\n\n"
-        "برای ویرایش یک پیام، روی آن کلیک کنید:",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode='Markdown'
+        "برای ویرایش یک پیام، روی آن کلیک کنید:"
     )
+    
+    # ✅ چک کنیم از message فراخوانی شده یا callback
+    if update.callback_query:
+        await update.callback_query.answer()
+        await update.callback_query.edit_message_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
+        )
+    elif update.message:
+        await update.message.reply_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
+        )
+    else:
+        logger.warning("customize_messages_menu called without message or callback_query")
+
 
 
 async def show_message_preview(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -219,6 +235,11 @@ async def start_edit_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def receive_new_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """دریافت متن جدید پیام"""
     if update.effective_user.id != ADMIN_ID:
+        return ConversationHandler.END
+    
+    # ✅ چک کردن وجود update.message
+    if not update.message:
+        logger.warning("receive_new_message called without message")
         return ConversationHandler.END
     
     key = context.user_data.get('editing_message_key')
