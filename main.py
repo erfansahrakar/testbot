@@ -70,6 +70,7 @@ try:
     from message_customizer import (
         customize_messages_menu,
         show_message_preview,
+        show_category_messages,
         reset_message,
         get_message_customizer_conversation,
         message_customizer
@@ -861,11 +862,16 @@ def main():
     if MESSAGE_CUSTOMIZER_AVAILABLE:
         try:
             # ✅ اول callback handlerهای ساده
+                        application.add_handler(CallbackQueryHandler(show_category_messages, pattern="^msg_cat:"))
             application.add_handler(CallbackQueryHandler(show_message_preview, pattern="^msg_edit:"))
             application.add_handler(CallbackQueryHandler(reset_message, pattern="^msg_reset:"))
             application.add_handler(CallbackQueryHandler(
                 lambda u, c: customize_messages_menu(u, c),
                 pattern="^msg_back_to_list$"
+            ))
+            application.add_handler(CallbackQueryHandler(
+                lambda u, c: customize_messages_menu(u, c),
+                pattern="^msg_back_to_categories$"
             ))
             
             # ✅ بعد ConversationHandler (برای msg_start_edit:)
