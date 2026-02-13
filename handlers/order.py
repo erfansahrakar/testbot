@@ -18,6 +18,7 @@ from keyboards import (
     order_items_removal_keyboard
 )
 from states import OrderStatus
+from message_customizer import message_customizer
 
 logger = logging.getLogger(__name__)
 
@@ -246,7 +247,7 @@ async def handle_continue_payment(update: Update, context: ContextTypes.DEFAULT_
     
     final_price = order[5]
     
-    message = MESSAGES["order_confirmed"].format(
+    message = message_customizer.get_message("order_confirmed", 
         amount=f"{final_price:,.0f}",
         card=CARD_NUMBER,
         iban=IBAN_NUMBER,
@@ -430,7 +431,7 @@ async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = order[1]
     final_price = order[5]
     
-    message = MESSAGES["order_confirmed"].format(
+    message = message_customizer.get_message("order_confirmed", 
         amount=f"{final_price:,.0f}",
         card=CARD_NUMBER,
         iban=IBAN_NUMBER,
@@ -466,7 +467,7 @@ async def reject_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ✅ FIX: اضافه کردن parse_mode=None
     await context.bot.send_message(
         user_id,
-        MESSAGES["order_rejected"],
+        message_customizer.get_message("order_rejected"),
         parse_markup=user_main_keyboard(),
         parse_mode=None
     )
@@ -852,7 +853,7 @@ async def confirm_modified_order(update: Update, context: ContextTypes.DEFAULT_T
     user_id = order[1]
     final_price = order[5]
     
-    message = MESSAGES["order_confirmed"].format(
+    message = message_customizer.get_message("order_confirmed", 
         amount=f"{final_price:,.0f}",
         card=CARD_NUMBER,
         iban=IBAN_NUMBER,
@@ -886,7 +887,7 @@ async def reject_full_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ✅ FIX: اضافه کردن parse_mode=None
     await context.bot.send_message(
         user_id,
-        MESSAGES["order_rejected"],
+        message_customizer.get_message("order_rejected"),
         reply_markup=user_main_keyboard(),
         parse_mode=None
     )
@@ -1184,8 +1185,8 @@ async def reject_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = order[1]
     final_price = order[5]
     
-    message = MESSAGES["payment_rejected"] + "\n\n"
-    message += MESSAGES["order_confirmed"].format(
+    message = message_customizer.get_message("payment_rejected") + "\n\n"
+    message += message_customizer.get_message("order_confirmed", 
         amount=f"{final_price:,.0f}",
         card=CARD_NUMBER,
         iban=IBAN_NUMBER,
@@ -1228,7 +1229,7 @@ async def handle_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db.update_order_status(order_id, OrderStatus.RECEIPT_SENT)
     
     # ✅ FIX: اضافه کردن parse_mode=None
-    await update.message.reply_text(MESSAGES["receipt_received"], parse_mode=None)
+    await update.message.reply_text(message_customizer.get_message("receipt_received"), parse_mode=None)
     
     order = db.get_order(order_id)
     items = json.loads(order[2])
