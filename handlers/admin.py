@@ -16,6 +16,8 @@ from keyboards import (
     back_to_products_keyboard,
     cancel_keyboard
 )
+# ✅ Import message customizer
+from message_customizer import message_customizer
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +41,7 @@ async def admin_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     await update.message.reply_text(
-        MESSAGES["start_admin"],
+        message_customizer.get_message("start_admin"),  # ✅ استفاده از message_customizer
         reply_markup=admin_main_keyboard()
     )
 
@@ -128,7 +130,7 @@ async def product_photo_received(update: Update, context: ContextTypes.DEFAULT_T
         cache_manager.invalidate_pattern("products:")
     
     await update.message.reply_text(
-        MESSAGES["product_added"],
+        message_customizer.get_message("product_added"),
         reply_markup=admin_main_keyboard()
     )
     
@@ -426,7 +428,7 @@ async def pack_price_received(update: Update, context: ContextTypes.DEFAULT_TYPE
         cache_manager.invalidate(f"packs:{product_id}")
     
     await update.message.reply_text(
-        MESSAGES["pack_added"],
+        message_customizer.get_message("pack_added"),
         reply_markup=admin_main_keyboard()
     )
     
