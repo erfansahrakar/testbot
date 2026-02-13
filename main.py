@@ -499,6 +499,36 @@ def main():
     
     setup_signal_handlers(application, db)
     
+    # ✅ Feature #1: شروع داشبورد مانیتورینگ
+    if MONITORING_AVAILABLE:
+        try:
+            # شروع سرور مانیتورینگ در پورت 5000
+            start_monitoring_dashboard(port=5000, host='0.0.0.0')
+            logger.info("✅ Monitoring dashboard started successfully")
+            
+            # تنظیم job برای بروزرسانی آمار (هر 30 ثانیه)
+            if hasattr(application, 'job_queue') and application.job_queue is not None:
+                async def update_monitoring_stats(context):
+                    """بروزرسانی آمار مانیتورینگ"""
+                    try:
+                        # دریافت cart_locks از bot_data
+                        cart_locks = context.bot_data.get('cart_locks', {})
+                        update_stats(db, cart_locks)
+                    except Exception as e:
+                        logger.error(f"Error updating monitoring stats: {e}")
+                
+                application.job_queue.run_repeating(
+                    update_monitoring_stats,
+                    interval=30,  # هر 30 ثانیه
+                    first=5,  # اولین بار بعد از 5 ثانیه
+                    name="monitoring_stats_update"
+                )
+                logger.info("✅ Monitoring stats auto-update enabled (every 30 seconds)")
+        except Exception as e:
+            logger.error(f"❌ Failed to start monitoring dashboard: {e}")
+    else:
+        logger.warning("⚠️ Monitoring dashboard is disabled")
+    
     # اضافه کردن Global Rate Limiter
     application.add_handler(
         TypeHandler(Update, global_rate_limit_check),
