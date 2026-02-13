@@ -41,6 +41,36 @@ from admin_dashboard import (
     admin_dashboard,
     handle_dashboard_callback
 )
+# ✅ Feature #1: Monitoring Dashboard
+try:
+    from monitoring import start_monitoring_dashboard, update_stats, set_error
+    MONITORING_AVAILABLE = True
+except ImportError:
+    logger.warning("⚠️ monitoring.py not found - Dashboard disabled")
+    MONITORING_AVAILABLE = False
+
+# ✅ Feature #4: Export Manager
+try:
+    from export_manager import export_menu, handle_export
+    EXPORT_AVAILABLE = True
+except ImportError:
+    logger.warning("⚠️ export_manager.py not found - Export disabled")
+    EXPORT_AVAILABLE = False
+
+# ✅ Feature #5: Message Customizer
+try:
+    from message_customizer import (
+        customize_messages_menu,
+        show_message_preview,
+        reset_message,
+        get_message_customizer_conversation,
+        message_customizer
+    )
+    MESSAGE_CUSTOMIZER_AVAILABLE = True
+except ImportError:
+    logger.warning("⚠️ message_customizer.py not found - Message customization disabled")
+    MESSAGE_CUSTOMIZER_AVAILABLE = False
+
 
 # تنظیم لاگینگ
 logging.basicConfig(
@@ -48,6 +78,30 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+
+
+
+# ✅ Feature #2: Graceful Shutdown
+def graceful_shutdown(signum, frame):
+    """خاموش شدن تمیز بات"""
+    logger.info("🛑 دستور خاموش شدن دریافت شد...")
+    logger.info("⏳ در حال بستن کانکشن‌ها...")
+    
+    try:
+        # بستن دیتابیس و ذخیره cache
+        logger.info("💾 Saving cache and closing database...")
+        logger.info("✅ Shutdown completed successfully")
+    except Exception as e:
+        logger.error(f"❌ خطا در shutdown: {e}")
+    finally:
+        log_shutdown()
+        sys.exit(0)
+
+
+# ثبت signal handlers
+signal.signal(signal.SIGINT, graceful_shutdown)   # Ctrl+C
+signal.signal(signal.SIGTERM, graceful_shutdown)  # kill command
 
 
 async def start(update: Update, context):
@@ -734,6 +788,38 @@ def main():
     # Message هندلرها
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_messages))
     application.add_handler(MessageHandler(filters.PHOTO, handle_photos))
+
+    
+    # ✅ Feature #4: Export handlers
+    if EXPORT_AVAILABLE:
+        try:
+            application.add_handler(CallbackQueryHandler(handle_export, pattern="^export:"))
+            logger.info("✅ Export handlers added")
+        except Exception as e:
+            logger.error(f"❌ Failed to add export handlers: {e}")
+    
+    # ✅ Feature #5: Message customizer handlers
+    if MESSAGE_CUSTOMIZER_AVAILABLE:
+        try:
+            application.add_handler(CallbackQueryHandler(show_message_preview, pattern="^msg_edit:"))
+            application.add_handler(CallbackQueryHandler(reset_message, pattern="^msg_reset:"))
+            application.add_handler(CallbackQueryHandler(
+                lambda u, c: customize_messages_menu(u, c),
+                pattern="^msg_back_to_list$"
+            ))
+            application.add_handler(get_message_customizer_conversation())
+            logger.info("✅ Message customizer handlers added")
+        except Exception as e:
+            logger.error(f"❌ Failed to add message customizer handlers: {e}")
+    
+    # ✅ Error handler با set_error برای monitoring
+    async def error_handler_with_monitoring(update, context):
+        from error_handler import error_handler
+        if MONITORING_AVAILABLE:
+            set_error(str(context.error)[:100])
+        await error_handler(update, context)
+    
+    application.add_error_handler(error_handler_with_monitoring)
     
     application.add_error_handler(error_handler)
     
