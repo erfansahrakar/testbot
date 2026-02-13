@@ -862,7 +862,7 @@ def main():
     if MESSAGE_CUSTOMIZER_AVAILABLE:
         try:
             # ✅ اول callback handlerهای ساده
-                        application.add_handler(CallbackQueryHandler(show_category_messages, pattern="^msg_cat:"))
+            application.add_handler(CallbackQueryHandler(show_category_messages, pattern="^msg_cat:"))
             application.add_handler(CallbackQueryHandler(show_message_preview, pattern="^msg_edit:"))
             application.add_handler(CallbackQueryHandler(reset_message, pattern="^msg_reset:"))
             application.add_handler(CallbackQueryHandler(
