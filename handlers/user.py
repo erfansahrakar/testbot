@@ -299,10 +299,14 @@ async def user_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await show_product(update, context, product_id)
             return
     
-    from config import get_start_message
+    # ✅ استفاده مستقیم از message_customizer با متغیر name
+    welcome_message = message_customizer.get_message(
+        "start_user",
+        name=user.first_name or user.username or "کاربر"
+    )
     
     await update.message.reply_text(
-        get_start_message(),
+        welcome_message,
         reply_markup=user_main_keyboard()
     )
 
@@ -1171,11 +1175,10 @@ async def final_confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE
     context.bot_data.pop(f'pending_shipping_{user_id}', None)
     context.user_data.pop('confirming_order', None)
     
-    # ✅ استفاده از message_customizer برای پیام سفارشی‌سازی شده
-    order_message = message_customizer.get_message("order_received", name=update.effective_user.first_name or "کاربر")
-    
     await query.message.reply_text(
-        order_message,
+        "✅ **سفارش شما ثبت نهایی شد!**\n\n"
+        "📦 سفارش شما به‌زودی ارسال خواهد شد.\n\n"
+        "🙏 از خرید شما سپاسگزاریم!",
         parse_mode='Markdown',
         reply_markup=user_main_keyboard()
     )
