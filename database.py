@@ -41,7 +41,7 @@ class DatabaseConnectionPool:
             try:
                 conn = sqlite3.connect(
                     self.database_name,
-                    timeout=30.0,
+                    timeout=60.0,  # ✅ FIX #6: افزایش timeout برای production
                     check_same_thread=False
                 )
                 conn.row_factory = sqlite3.Row
