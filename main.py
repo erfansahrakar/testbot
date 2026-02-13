@@ -133,7 +133,8 @@ async def handle_text_messages(update: Update, context):
     # چون ConversationHandler باید پیام رو مدیریت کنه
     if context.user_data and any(key in context.user_data for key in [
         'editing_product_id', 'editing_pack_id', 'new_product_name',
-        'broadcasting', 'creating_discount', 'finalizing_order'
+        'broadcasting', 'creating_discount', 'finalizing_order',
+        'editing_message_key'  # ✅ اضافه شدن برای message customizer
     ]):
         # کاربر داخل یک مکالمه است، این handler رو رد می‌کنیم
         return
@@ -831,18 +832,20 @@ def main():
         query = update.callback_query
         await query.answer()
         
-        from handlers.admin import admin_start
         from keyboards import admin_main_keyboard
         
-        await query.message.reply_text(
-            "👋 خوش آمدید ادمین!\n\nیکی از گزینه‌های زیر را انتخاب کنید:",
+        # ارسال پیام جدید به جای edit
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text="👋 خوش آمدید ادمین!\n\nیکی از گزینه‌های زیر را انتخاب کنید:",
             reply_markup=admin_main_keyboard()
         )
+        
         # حذف پیام قبلی
         try:
             await query.message.delete()
-        except:
-            pass
+        except Exception as e:
+            logger.warning(f"Could not delete message: {e}")
     
     application.add_handler(CallbackQueryHandler(back_to_admin_handler, pattern="^back_to_admin$"))
     
