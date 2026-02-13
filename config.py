@@ -299,7 +299,13 @@ def get_start_message() -> str:
     Returns:
         متن پیام استارت
     """
-    return MESSAGES["start_user"].format(channel=CONTACT_INFO['channel'])
+    # ✅ استفاده از message_customizer برای پیام سفارشی‌سازی شده
+    try:
+        from message_customizer import message_customizer
+        return message_customizer.get_message("start_user", channel=CONTACT_INFO['channel'])
+    except:
+        # fallback به پیام پیش‌فرض
+        return MESSAGES["start_user"].format(channel=CONTACT_INFO['channel'])
 
 
 # ==================== Validation ====================
