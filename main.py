@@ -825,6 +825,27 @@ def main():
     
     application.add_handler(CallbackQueryHandler(handle_analytics_report, pattern="^analytics:"))
     
+    # ✅ Handler برای بازگشت به منوی ادمین
+    async def back_to_admin_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """بازگشت به منوی اصلی ادمین"""
+        query = update.callback_query
+        await query.answer()
+        
+        from handlers.admin import admin_start
+        from keyboards import admin_main_keyboard
+        
+        await query.message.reply_text(
+            "👋 خوش آمدید ادمین!\n\nیکی از گزینه‌های زیر را انتخاب کنید:",
+            reply_markup=admin_main_keyboard()
+        )
+        # حذف پیام قبلی
+        try:
+            await query.message.delete()
+        except:
+            pass
+    
+    application.add_handler(CallbackQueryHandler(back_to_admin_handler, pattern="^back_to_admin$"))
+    
     # Message هندلرها
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_messages))
     application.add_handler(MessageHandler(filters.PHOTO, handle_photos))
