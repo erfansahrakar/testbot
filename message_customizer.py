@@ -4,6 +4,7 @@
 """
 import json
 import logging
+import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
 from config import ADMIN_ID
@@ -14,7 +15,8 @@ logger = logging.getLogger(__name__)
 EDIT_MESSAGE = 1
 
 # فایل ذخیره پیام‌های سفارشی
-CUSTOM_MESSAGES_FILE = "/home/claude/custom_messages.json"
+# استفاده از مسیر absolute در همون پوشه‌ای که ربات اجرا میشه
+CUSTOM_MESSAGES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "custom_messages.json")
 
 # پیام‌های پیش‌فرض
 DEFAULT_MESSAGES = {
