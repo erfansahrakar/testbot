@@ -1,14 +1,16 @@
 """
-✅ FEATURE #4: Export Manager
+✅ FEATURE #4: Export Manager (نسخه Fix شده)
 دانلود گزارشات به صورت Excel/CSV
 """
 import logging
+import os
+import tempfile
 from datetime import datetime, timedelta
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 import json
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from config import ADMIN_ID
 
@@ -64,6 +66,7 @@ class ExportManager:
             conn = self.db._get_conn()
             cursor = conn.cursor()
             
+            # ✅ Query ساده بدون JOIN
             query = "SELECT * FROM orders WHERE 1=1"
             params = []
             
@@ -93,7 +96,6 @@ class ExportManager:
             headers = [
                 "شماره سفارش",
                 "کاربر ID",
-                "نام کاربر",
                 "محصولات",
                 "قیمت کل",
                 "تخفیف",
@@ -101,59 +103,61 @@ class ExportManager:
                 "کد تخفیف",
                 "وضعیت",
                 "نحوه ارسال",
-                "تاریخ ثبت",
-                "موبایل"
+                "تاریخ ثبت"
             ]
             ws.append(headers)
             
             # داده‌ها
             for order in orders:
-                order_id, user_id, items_json, total_price, discount_amount, final_price, discount_code, status, receipt, shipping_method, created_at, expires_at, *rest = order
-                
-                # دریافت اطلاعات کاربر
-                user = self.db.get_user(user_id)
-                user_name = user[3] if user and len(user) > 3 and user[3] else "نامشخص"
-                user_phone = user[4] if user and len(user) > 4 and user[4] else "ندارد"
-                
-                # پردازش آیتم‌ها
-                items = json.loads(items_json)
-                items_text = ", ".join([f"{item['product']} ({item['quantity']})" for item in items])
-                
-                # فرمت تاریخ
-                if isinstance(created_at, str):
-                    created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
-                date_str = created_at.strftime('%Y-%m-%d %H:%M') if created_at else "نامشخص"
-                
-                # افزودن ردیف
-                ws.append([
-                    order_id,
-                    user_id,
-                    user_name,
-                    items_text,
-                    total_price,
-                    discount_amount,
-                    final_price,
-                    discount_code or "-",
-                    status,
-                    shipping_method or "-",
-                    date_str,
-                    user_phone
-                ])
+                try:
+                    # خواندن ستون‌ها به صورت امن
+                    row_data = []
+                    for i, header in enumerate(headers):
+                        try:
+                            value = order[i] if i < len(order) else "-"
+                            
+                            # فرمت کردن تاریخ
+                            if i == len(headers) - 1 and value and value != "-":  # ستون تاریخ
+                                try:
+                                    if isinstance(value, str):
+                                        dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
+                                        value = dt.strftime('%Y-%m-%d %H:%M')
+                                except:
+                                    pass
+                            
+                            # فرمت کردن items (JSON)
+                            if i == 2 and value and value != "-":  # ستون محصولات
+                                try:
+                                    items = json.loads(value)
+                                    value = ", ".join([f"{item.get('product', '?')} ({item.get('quantity', '?')})" for item in items])
+                                except:
+                                    pass
+                            
+                            row_data.append(value if value is not None else "-")
+                        except:
+                            row_data.append("-")
+                    
+                    ws.append(row_data)
+                except Exception as e:
+                    logger.error(f"Error processing order row: {e}")
+                    continue
             
             # استایل
             self._style_header(ws)
             self._auto_width(ws)
             
-            # ذخیره فایل
+            # ✅ ذخیره در temp directory
+            temp_dir = tempfile.gettempdir()
             filename = f"orders_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-            filepath = f"/home/claude/{filename}"
+            filepath = os.path.join(temp_dir, filename)
+            
             wb.save(filepath)
             
             logger.info(f"✅ Exported {len(orders)} orders to {filename}")
             return filepath
         
         except Exception as e:
-            logger.error(f"❌ Error exporting orders: {e}")
+            logger.error(f"❌ Error exporting orders: {e}", exc_info=True)
             raise
     
     def export_products(self):
@@ -162,15 +166,8 @@ class ExportManager:
             conn = self.db._get_conn()
             cursor = conn.cursor()
             
-            cursor.execute("""
-                SELECT p.id, p.name, p.description, 
-                       COUNT(DISTINCT pk.id) as pack_count,
-                       p.created_at
-                FROM products p
-                LEFT JOIN packs pk ON pk.product_id = p.id
-                GROUP BY p.id
-                ORDER BY p.created_at DESC
-            """)
+            # ✅ Query ساده
+            cursor.execute("SELECT * FROM products ORDER BY created_at DESC")
             products = cursor.fetchall()
             
             # ساخت Workbook
@@ -179,39 +176,48 @@ class ExportManager:
             ws.title = "محصولات"
             
             # Header
-            headers = ["ID", "نام محصول", "توضیحات", "تعداد پک‌ها", "تاریخ ایجاد"]
+            headers = ["ID", "نام محصول", "توضیحات", "تاریخ ایجاد"]
             ws.append(headers)
             
             # داده‌ها
             for product in products:
-                prod_id, name, desc, pack_count, created_at = product
-                
-                if isinstance(created_at, str):
-                    created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
-                date_str = created_at.strftime('%Y-%m-%d') if created_at else "نامشخص"
-                
-                ws.append([
-                    prod_id,
-                    name,
-                    desc or "-",
-                    pack_count,
-                    date_str
-                ])
+                try:
+                    row_data = []
+                    for i in range(min(4, len(product))):
+                        value = product[i]
+                        
+                        # فرمت تاریخ
+                        if i == 3 and value:
+                            try:
+                                if isinstance(value, str):
+                                    dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
+                                    value = dt.strftime('%Y-%m-%d')
+                            except:
+                                pass
+                        
+                        row_data.append(value if value is not None else "-")
+                    
+                    ws.append(row_data)
+                except Exception as e:
+                    logger.error(f"Error processing product row: {e}")
+                    continue
             
             # استایل
             self._style_header(ws)
             self._auto_width(ws)
             
-            # ذخیره
+            # ✅ ذخیره در temp
+            temp_dir = tempfile.gettempdir()
             filename = f"products_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-            filepath = f"/home/claude/{filename}"
+            filepath = os.path.join(temp_dir, filename)
+            
             wb.save(filepath)
             
             logger.info(f"✅ Exported {len(products)} products to {filename}")
             return filepath
         
         except Exception as e:
-            logger.error(f"❌ Error exporting products: {e}")
+            logger.error(f"❌ Error exporting products: {e}", exc_info=True)
             raise
     
     def export_users(self):
@@ -220,16 +226,8 @@ class ExportManager:
             conn = self.db._get_conn()
             cursor = conn.cursor()
             
-            cursor.execute("""
-                SELECT u.id, u.username, u.full_name, u.phone, 
-                       COUNT(DISTINCT o.id) as order_count,
-                       SUM(CASE WHEN o.status IN ('confirmed', 'payment_confirmed') THEN o.final_price ELSE 0 END) as total_spent,
-                       u.joined_at
-                FROM users u
-                LEFT JOIN orders o ON o.user_id = u.id
-                GROUP BY u.id
-                ORDER BY total_spent DESC
-            """)
+            # ✅ Query ساده بدون JOIN
+            cursor.execute("SELECT * FROM users ORDER BY joined_at DESC")
             users = cursor.fetchall()
             
             # ساخت Workbook
@@ -238,46 +236,53 @@ class ExportManager:
             ws.title = "کاربران"
             
             # Header
-            headers = ["User ID", "Username", "نام", "موبایل", "تعداد سفارش", "جمع خرید", "تاریخ عضویت"]
+            headers = ["User ID", "Username", "نام", "موبایل", "تاریخ عضویت"]
             ws.append(headers)
             
             # داده‌ها
             for user in users:
-                user_id, username, full_name, phone, order_count, total_spent, joined_at = user
-                
-                if isinstance(joined_at, str):
-                    joined_at = datetime.fromisoformat(joined_at.replace('Z', '+00:00'))
-                date_str = joined_at.strftime('%Y-%m-%d') if joined_at else "نامشخص"
-                
-                ws.append([
-                    user_id,
-                    username or "-",
-                    full_name or "-",
-                    phone or "-",
-                    order_count or 0,
-                    total_spent or 0,
-                    date_str
-                ])
+                try:
+                    row_data = []
+                    for i in range(min(5, len(user))):
+                        value = user[i]
+                        
+                        # فرمت تاریخ
+                        if i == 4 and value:
+                            try:
+                                if isinstance(value, str):
+                                    dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
+                                    value = dt.strftime('%Y-%m-%d')
+                            except:
+                                pass
+                        
+                        row_data.append(value if value is not None else "-")
+                    
+                    ws.append(row_data)
+                except Exception as e:
+                    logger.error(f"Error processing user row: {e}")
+                    continue
             
             # استایل
             self._style_header(ws)
             self._auto_width(ws)
             
-            # ذخیره
+            # ✅ ذخیره در temp
+            temp_dir = tempfile.gettempdir()
             filename = f"users_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-            filepath = f"/home/claude/{filename}"
+            filepath = os.path.join(temp_dir, filename)
+            
             wb.save(filepath)
             
             logger.info(f"✅ Exported {len(users)} users to {filename}")
             return filepath
         
         except Exception as e:
-            logger.error(f"❌ Error exporting users: {e}")
+            logger.error(f"❌ Error exporting users: {e}", exc_info=True)
             raise
     
     def export_sales_report(self, period='month'):
         """
-        گزارش فروش
+        گزارش فروش ساده
         
         Args:
             period: 'week', 'month', 'year'
@@ -299,7 +304,7 @@ class ExportManager:
             conn = self.db._get_conn()
             cursor = conn.cursor()
             
-            # آمار کلی
+            # ✅ Query ساده
             cursor.execute("""
                 SELECT 
                     COUNT(*) as total_orders,
@@ -314,59 +319,32 @@ class ExportManager:
             
             # ساخت Workbook
             wb = Workbook()
+            ws = wb.active
+            ws.title = "خلاصه"
             
-            # Sheet 1: خلاصه
-            ws_summary = wb.active
-            ws_summary.title = "خلاصه"
+            ws.append(["گزارش فروش", title])
+            ws.append([])
+            ws.append(["شاخص", "مقدار"])
+            ws.append(["تعداد سفارشات", stats[0] or 0])
+            ws.append(["جمع فروش", f"{stats[1] or 0:,} تومان"])
+            ws.append(["میانگین سفارش", f"{stats[2] or 0:,.0f} تومان"])
+            ws.append(["تخفیفات داده شده", f"{stats[3] or 0:,} تومان"])
             
-            ws_summary.append(["گزارش فروش", title])
-            ws_summary.append([])
-            ws_summary.append(["شاخص", "مقدار"])
-            ws_summary.append(["تعداد سفارشات", stats[0] or 0])
-            ws_summary.append(["جمع فروش", f"{stats[1] or 0:,} تومان"])
-            ws_summary.append(["میانگین سفارش", f"{stats[2] or 0:,.0f} تومان"])
-            ws_summary.append(["تخفیفات داده شده", f"{stats[3] or 0:,} تومان"])
+            self._style_header(ws)
+            self._auto_width(ws)
             
-            self._style_header(ws_summary)
-            self._auto_width(ws_summary)
-            
-            # Sheet 2: محصولات پرفروش
-            ws_products = wb.create_sheet("محصولات پرفروش")
-            
-            cursor.execute("""
-                SELECT 
-                    p.name,
-                    COUNT(*) as sales_count,
-                    SUM(json_extract(value, '$.quantity')) as total_quantity,
-                    SUM(json_extract(value, '$.price')) as total_revenue
-                FROM orders o, json_each(o.items) as je
-                JOIN packs pk ON pk.id = json_extract(je.value, '$.pack_id')
-                JOIN products p ON p.id = pk.product_id
-                WHERE o.created_at >= ? AND o.status IN ('confirmed', 'payment_confirmed')
-                GROUP BY p.id
-                ORDER BY total_revenue DESC
-                LIMIT 10
-            """, (start_date.isoformat(),))
-            
-            top_products = cursor.fetchall()
-            
-            ws_products.append(["محصول", "تعداد فروش", "مجموع تعداد", "درآمد"])
-            for product in top_products:
-                ws_products.append(list(product))
-            
-            self._style_header(ws_products)
-            self._auto_width(ws_products)
-            
-            # ذخیره
+            # ✅ ذخیره در temp
+            temp_dir = tempfile.gettempdir()
             filename = f"sales_report_{period}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-            filepath = f"/home/claude/{filename}"
+            filepath = os.path.join(temp_dir, filename)
+            
             wb.save(filepath)
             
             logger.info(f"✅ Generated sales report: {filename}")
             return filepath
         
         except Exception as e:
-            logger.error(f"❌ Error generating sales report: {e}")
+            logger.error(f"❌ Error generating sales report: {e}", exc_info=True)
             raise
 
 
@@ -374,10 +352,9 @@ class ExportManager:
 
 async def export_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """منوی export"""
-    if update.effective_user.id != ADMIN_ID:
+    # چک کردن ادمین
+    if not update.effective_user or update.effective_user.id != ADMIN_ID:
         return
-    
-    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
     
     keyboard = [
         [InlineKeyboardButton("📦 سفارشات", callback_data="export:orders")],
@@ -401,15 +378,22 @@ async def handle_export(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    if update.effective_user.id != ADMIN_ID:
+    # چک کردن ادمین
+    if not update.effective_user or update.effective_user.id != ADMIN_ID:
         return
     
     export_type = query.data.split(':')[1]
     
-    await query.message.reply_text("⏳ در حال آماده‌سازی فایل...")
+    await query.message.reply_text("⏳ در حال آماده‌سازی فایل...\n\nلطفاً کمی صبر کنید...")
+    
+    filepath = None
     
     try:
-        db = context.bot_data['db']
+        db = context.bot_data.get('db')
+        if not db:
+            await query.message.reply_text("❌ خطا: دیتابیس در دسترس نیست!")
+            return
+        
         exporter = ExportManager(db)
         
         if export_type == 'orders':
@@ -427,17 +411,33 @@ async def handle_export(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         # ارسال فایل
-        with open(filepath, 'rb') as f:
-            await query.message.reply_document(
-                document=f,
-                filename=filepath.split('/')[-1],
-                caption="✅ فایل آماده شد!"
-            )
-        
-        # حذف فایل موقت
-        import os
-        os.remove(filepath)
+        if filepath and os.path.exists(filepath):
+            with open(filepath, 'rb') as f:
+                await query.message.reply_document(
+                    document=f,
+                    filename=os.path.basename(filepath),
+                    caption="✅ فایل آماده شد!"
+                )
+            
+            # حذف فایل موقت
+            try:
+                os.remove(filepath)
+            except:
+                pass
+        else:
+            await query.message.reply_text("❌ خطا در ساخت فایل!")
         
     except Exception as e:
-        logger.error(f"Error in export: {e}")
-        await query.message.reply_text(f"❌ خطا در ساخت فایل: {str(e)}")
+        logger.error(f"❌ Error in export: {e}", exc_info=True)
+        await query.message.reply_text(
+            f"❌ خطا در ساخت فایل:\n\n"
+            f"```\n{str(e)[:200]}\n```",
+            parse_mode='Markdown'
+        )
+        
+        # حذف فایل در صورت خطا
+        if filepath:
+            try:
+                os.remove(filepath)
+            except:
+                pass
