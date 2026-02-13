@@ -190,6 +190,16 @@ async def handle_text_messages(update: Update, context):
             return await admin_dashboard(update, context)
         elif text == "🧹 پاکسازی دیتابیس":
             return await manual_cleanup(update, context)
+        elif text == "⚙️ سفارشی‌سازی پیام‌ها":
+            if MESSAGE_CUSTOMIZER_AVAILABLE:
+                return await customize_messages_menu(update, context)
+            else:
+                await update.message.reply_text("❌ این قابلیت در دسترس نیست!")
+        elif text == "📥 دانلود گزارشات":
+            if EXPORT_AVAILABLE:
+                return await export_menu(update, context)
+            else:
+                await update.message.reply_text("❌ این قابلیت در دسترس نیست!")
     
     # دستورات کاربر
     if text == "🛒 سبد خرید":
