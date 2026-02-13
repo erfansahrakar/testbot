@@ -41,6 +41,14 @@ from admin_dashboard import (
     admin_dashboard,
     handle_dashboard_callback
 )
+
+# تنظیم لاگینگ
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
 # ✅ Feature #1: Monitoring Dashboard
 try:
     from monitoring import start_monitoring_dashboard, update_stats, set_error
@@ -70,14 +78,6 @@ try:
 except ImportError:
     logger.warning("⚠️ message_customizer.py not found - Message customization disabled")
     MESSAGE_CUSTOMIZER_AVAILABLE = False
-
-
-# تنظیم لاگینگ
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
-logger = logging.getLogger(__name__)
 
 
 
