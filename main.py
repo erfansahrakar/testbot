@@ -865,13 +865,17 @@ def main():
     # ✅ Feature #5: Message customizer handlers
     if MESSAGE_CUSTOMIZER_AVAILABLE:
         try:
+            # ✅ اول callback handlerهای ساده
             application.add_handler(CallbackQueryHandler(show_message_preview, pattern="^msg_edit:"))
             application.add_handler(CallbackQueryHandler(reset_message, pattern="^msg_reset:"))
             application.add_handler(CallbackQueryHandler(
                 lambda u, c: customize_messages_menu(u, c),
                 pattern="^msg_back_to_list$"
             ))
+            
+            # ✅ بعد ConversationHandler (برای msg_start_edit:)
             application.add_handler(get_message_customizer_conversation())
+            
             logger.info("✅ Message customizer handlers added")
         except Exception as e:
             logger.error(f"❌ Failed to add message customizer handlers: {e}")
