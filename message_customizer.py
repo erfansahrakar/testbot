@@ -251,16 +251,26 @@ async def receive_new_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     # ذخیره
     if message_customizer.set_message(key, new_message):
+        # پاک کردن key قبل از ارسال پیام
+        context.user_data.pop('editing_message_key', None)
+        
         await update.message.reply_text(
             f"✅ پیام `{key}` با موفقیت به‌روز شد!\n\n"
-            f"📝 متن جدید:\n```\n{new_message}\n```",
-            parse_mode='Markdown'
+            f"📝 متن جدید:\n```\n{new_message}\n```\n\n"
+            "برای بازگشت به منو از دکمه زیر استفاده کنید:",
+            parse_mode='Markdown',
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("🔙 بازگشت به لیست", callback_data="msg_back_to_list")
+            ]])
         )
     else:
-        await update.message.reply_text("❌ خطا در ذخیره پیام!")
-    
-    # پاک کردن
-    context.user_data.pop('editing_message_key', None)
+        context.user_data.pop('editing_message_key', None)
+        await update.message.reply_text(
+            "❌ خطا در ذخیره پیام!",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("🔙 بازگشت به لیست", callback_data="msg_back_to_list")
+            ]])
+        )
     
     return ConversationHandler.END
 
@@ -310,4 +320,8 @@ def get_message_customizer_conversation():
         fallbacks=[
             CommandHandler("cancel", cancel_edit),
         ],
+        allow_reentry=False,  # ✅ جلوگیری از ورود مجدد به conversation
+        per_message=False,
+        per_chat=True,
+        per_user=True,
     )
