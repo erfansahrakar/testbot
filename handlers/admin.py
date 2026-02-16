@@ -5,6 +5,7 @@
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
+from message_customizer import message_customizer
 from config import ADMIN_ID, MESSAGES, CHANNEL_USERNAME
 from validators import Validators
 from logger import log_admin_action
@@ -16,8 +17,6 @@ from keyboards import (
     back_to_products_keyboard,
     cancel_keyboard
 )
-# ✅ Import message customizer
-from message_customizer import message_customizer
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +40,7 @@ async def admin_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     await update.message.reply_text(
-        message_customizer.get_message("start_admin"),  # ✅ استفاده از message_customizer
+        message_customizer.get_message("start_admin"),
         reply_markup=admin_main_keyboard()
     )
 
