@@ -851,14 +851,42 @@ async def confirm_modified_order(update: Update, context: ContextTypes.DEFAULT_T
     db.update_order_status(order_id, OrderStatus.WAITING_PAYMENT)
     
     user_id = order[1]
+    items_json = order[2]
+    total_price = order[3]
+    discount_amount = order[4]
     final_price = order[5]
     
-    message = message_customizer.get_message("order_confirmed", 
+    # ساخت پیام با تغییرات
+    items = json.loads(items_json)
+    
+    message = "✅ سفارش شما با تغییرات زیر تایید شد:\n\n"
+    message += "📦 آیتم‌های نهایی:\n"
+    
+    for idx, item in enumerate(items, 1):
+        message += f"{idx}. {item['product']} - {item['pack']}\n"
+        message += f"   🔢 تعداد: {item['quantity']} عدد\n"
+        
+        # نمایش توضیحات ادمین اگر وجود داشت
+        if item.get('admin_notes'):
+            message += f"   📝 توضیحات: {item['admin_notes']}\n"
+        
+        message += f"   💰 {item['price']:,.0f} تومان\n\n"
+    
+    message += f"💰 جمع کل: {total_price:,.0f} تومان\n"
+    if discount_amount > 0:
+        message += f"🎁 تخفیف: {discount_amount:,.0f} تومان\n"
+    message += f"💳 مبلغ نهایی: {final_price:,.0f} تومان\n\n"
+    message += "─" * 30 + "\n\n"
+    
+    # اضافه کردن اطلاعات پرداخت
+    payment_message = message_customizer.get_message("order_confirmed", 
         amount=f"{final_price:,.0f}",
         card=CARD_NUMBER,
         iban=IBAN_NUMBER,
         holder=CARD_HOLDER
     )
+    
+    message += payment_message
     
     # ✅ FIX: اضافه کردن parse_mode=None
     await context.bot.send_message(user_id, message, parse_mode=None)
