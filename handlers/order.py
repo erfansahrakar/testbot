@@ -18,7 +18,6 @@ from keyboards import (
     order_items_removal_keyboard
 )
 from states import OrderStatus
-from message_customizer import message_customizer
 
 logger = logging.getLogger(__name__)
 
