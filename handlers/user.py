@@ -5,10 +5,8 @@
 import json
 import logging
 import asyncio
-from datetime import datetime, timedelta
 from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler
-from config import MESSAGES
 from message_customizer import message_customizer
 from validators import Validators
 from logger import log_user_action, log_order, log_discount_usage
@@ -25,43 +23,8 @@ from keyboards import (
 
 logger = logging.getLogger(__name__)
 
-# ✅ Fix #3: Lock برای جلوگیری از Race Condition + سیستم cleanup
+# ✅ Lock برای جلوگیری از Race Condition در cart operations
 cart_locks = {}  # به ازای هر کاربر یک Lock
-cart_locks_last_used = {}  # زمان آخرین استفاده از هر lock
-
-
-async def _get_cart_lock(user_id: int):
-    """
-    ✅ Fix #3: دریافت lock با cleanup خودکار
-    
-    Args:
-        user_id: شناسه کاربر
-    
-    Returns:
-        asyncio.Lock: lock مربوط به کاربر
-    """
-    # اگه lock نداره، بساز
-    if user_id not in cart_locks:
-        cart_locks[user_id] = asyncio.Lock()
-    
-    # به‌روزرسانی زمان استفاده
-    cart_locks_last_used[user_id] = datetime.now()
-    
-    # پاکسازی lock های قدیمی (بیش از 1 ساعت)
-    current_time = datetime.now()
-    to_remove = []
-    
-    for uid, last_time in list(cart_locks_last_used.items()):
-        if (current_time - last_time).total_seconds() > 3600:  # 1 ساعت
-            to_remove.append(uid)
-    
-    for uid in to_remove:
-        cart_locks.pop(uid, None)
-        cart_locks_last_used.pop(uid, None)
-        logger.debug(f"🧹 Cleaned up lock for user {uid}")
-    
-    return cart_locks[user_id]
-
 
 
 # ==================== HELPER FUNCTIONS ====================
@@ -83,12 +46,6 @@ async def _update_cart_item_quantity(update: Update, context: ContextTypes.DEFAU
         tuple: (success: bool, new_quantity: int, message: str)
     """
     query = update.callback_query
-    
-    # ✅ Fix #2: چک کردن effective_user
-    if not update.effective_user:
-        logger.warning("⚠️ Update without effective_user in _update_cart_item_quantity")
-        return False, 0, "❌ خطای دسترسی کاربر!"
-    
     user_id = update.effective_user.id
     db = context.bot_data['db']
     
@@ -157,12 +114,6 @@ async def _refresh_cart_display(update: Update, context: ContextTypes.DEFAULT_TY
         bool: آیا سبد خالی است؟
     """
     query = update.callback_query
-    
-    # ✅ Fix #2: چک کردن effective_user
-    if not update.effective_user:
-        logger.warning("⚠️ Update without effective_user in _refresh_cart_display")
-        return True
-    
     user_id = update.effective_user.id
     db = context.bot_data['db']
     
@@ -247,11 +198,6 @@ async def _refresh_cart_display(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def user_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """پیام خوش‌آمدگویی به کاربر"""
-    # ✅ Fix #2: چک کردن effective_user
-    if not update.effective_user:
-        logger.warning("⚠️ Update without effective_user in user_start")
-        return
-    
     user = update.effective_user
     db = context.bot_data['db']
     
@@ -299,14 +245,10 @@ async def user_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await show_product(update, context, product_id)
             return
     
-    # ✅ استفاده مستقیم از message_customizer با متغیر name
-    welcome_message = message_customizer.get_message(
-        "start_user",
-        name=user.first_name or user.username or "کاربر"
-    )
+    from config import get_start_message
     
     await update.message.reply_text(
-        welcome_message,
+        get_start_message(),
         reply_markup=user_main_keyboard()
     )
 
@@ -1041,12 +983,6 @@ async def handle_shipping_selection(update: Update, context: ContextTypes.DEFAUL
     query = update.callback_query
     await query.answer()
     
-    # ✅ Fix #2: چک کردن effective_user
-    if not update.effective_user:
-        logger.warning("⚠️ Update without effective_user in handle_shipping_selection")
-        await query.answer("❌ خطای دسترسی کاربر!", show_alert=True)
-        return
-    
     user_id = update.effective_user.id
     db = context.bot_data['db']
     
@@ -1165,12 +1101,6 @@ async def final_confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE
     db = context.bot_data['db']
     db.update_order_status(order_id, 'confirmed')
     
-    # ✅ Fix #2: چک کردن effective_user
-    if not update.effective_user:
-        logger.warning("⚠️ Update without effective_user in final_confirm_order")
-        await query.answer("❌ خطای دسترسی کاربر!", show_alert=True)
-        return
-    
     user_id = update.effective_user.id
     context.bot_data.pop(f'pending_shipping_{user_id}', None)
     context.user_data.pop('confirming_order', None)
@@ -1209,12 +1139,6 @@ async def final_edit_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def view_my_address(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """نمایش آدرس ثبت شده"""
-    # ✅ Fix #2: چک کردن effective_user
-    if not update.effective_user:
-        logger.warning("⚠️ Update without effective_user in view_my_address")
-        await update.message.reply_text("❌ خطای دسترسی کاربر!")
-        return
-    
     user_id = update.effective_user.id
     db = context.bot_data['db']
     user = db.get_user(user_id)
