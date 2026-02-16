@@ -251,11 +251,18 @@ async def customize_messages_menu(update: Update, context: ContextTypes.DEFAULT_
     text = "⚙️ **سفارشی‌سازی پیام‌ها**\n\nیک دسته انتخاب کنید:"
     
     if update.callback_query:
-        await update.callback_query.edit_message_text(
-            text,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode='Markdown'
-        )
+        try:
+            await update.callback_query.edit_message_text(
+                text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='Markdown'
+            )
+        except Exception as e:
+            if "message is not modified" in str(e).lower():
+                await update.callback_query.answer()
+            else:
+                logger.error(f"Error in customize_messages_menu: {e}")
+                await update.callback_query.answer("❌ خطا!", show_alert=True)
     else:
         await message.reply_text(
             text,
@@ -290,13 +297,27 @@ async def show_category_messages(update: Update, context: ContextTypes.DEFAULT_T
     
     keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="msg_back_to_categories")])
     
-    await query.edit_message_text(
+    new_text = (
         f"⚙️ **{category_name}**\n\n"
         "📝 = پیش‌فرض | ✏️ = سفارشی شده\n\n"
-        "برای ویرایش روی پیام کلیک کنید:",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode='Markdown'
+        "برای ویرایش روی پیام کلیک کنید:"
     )
+    
+    # ✅ FIX: چک کردن اگه پیام عوض شده باشه
+    try:
+        await query.edit_message_text(
+            new_text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
+        )
+    except Exception as e:
+        # اگه پیام یکسان بود، فقط answer بزن
+        if "message is not modified" in str(e).lower():
+            await query.answer()
+        else:
+            # خطاهای دیگه رو لاگ کن
+            logger.error(f"Error in show_category_messages: {e}")
+            await query.answer("❌ خطا!", show_alert=True)
 
 
 async def show_message_preview(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -333,11 +354,19 @@ async def show_message_preview(update: Update, context: ContextTypes.DEFAULT_TYP
     
     keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="msg_back_to_list")])
     
-    await query.edit_message_text(
-        text,
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode='Markdown'
-    )
+    # ✅ FIX: چک کردن اگه پیام عوض شده باشه
+    try:
+        await query.edit_message_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
+        )
+    except Exception as e:
+        if "message is not modified" in str(e).lower():
+            await query.answer()
+        else:
+            logger.error(f"Error in show_message_preview: {e}")
+            await query.answer("❌ خطا!", show_alert=True)
 
 
 async def start_edit_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -351,13 +380,21 @@ async def start_edit_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
     key = query.data.split(':')[1]
     context.user_data['editing_message_key'] = key
     
-    await query.edit_message_text(
-        f"✏️ **ویرایش: `{key}`**\n\n"
-        "لطفاً متن جدید را ارسال کنید.\n\n"
-        "💡 متغیرها: `{{name}}` `{{amount}}` `{{card}}` ...\n\n"
-        "لغو: /cancel",
-        parse_mode='Markdown'
-    )
+    try:
+        await query.edit_message_text(
+            f"✏️ **ویرایش: `{key}`**\n\n"
+            "لطفاً متن جدید را ارسال کنید.\n\n"
+            "💡 متغیرها: `{{name}}` `{{amount}}` `{{card}}` ...\n\n"
+            "لغو: /cancel",
+            parse_mode='Markdown'
+        )
+    except Exception as e:
+        if "message is not modified" in str(e).lower():
+            pass  # اگه پیام یکسان بود، ادامه بده
+        else:
+            logger.error(f"Error in start_edit_message: {e}")
+            await query.answer("❌ خطا!", show_alert=True)
+            return ConversationHandler.END
     
     return EDIT_MESSAGE
 
@@ -398,12 +435,22 @@ async def reset_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if message_customizer.reset_message(key):
         default_message = DEFAULT_MESSAGES.get(key, "")
-        await query.edit_message_text(
-            f"✅ `{key}` به پیش‌فرض بازگشت!\n\n```\n{default_message}\n```",
-            parse_mode='Markdown'
-        )
+        try:
+            await query.edit_message_text(
+                f"✅ `{key}` به پیش‌فرض بازگشت!\n\n```\n{default_message}\n```",
+                parse_mode='Markdown'
+            )
+        except Exception as e:
+            if "message is not modified" in str(e).lower():
+                await query.answer("✅ بازگشت داده شد!")
+            else:
+                logger.error(f"Error in reset_message: {e}")
+                await query.answer("❌ خطا!", show_alert=True)
     else:
-        await query.edit_message_text("❌ خطا!")
+        try:
+            await query.edit_message_text("❌ خطا!")
+        except:
+            await query.answer("❌ خطا!", show_alert=True)
 
 
 async def cancel_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
