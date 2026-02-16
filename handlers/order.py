@@ -11,6 +11,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from logger import log_payment, log_admin_action
 from config import ADMIN_ID, MESSAGES, CARD_NUMBER, CARD_HOLDER, IBAN_NUMBER
+from message_customizer import message_customizer
 from keyboards import (
     order_confirmation_keyboard, 
     payment_confirmation_keyboard, 
