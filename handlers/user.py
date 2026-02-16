@@ -246,9 +246,16 @@ async def user_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
     
     from config import get_start_message
+    from message_customizer import message_customizer
+    
+    # دریافت اسم کاربر
+    user_name = user.first_name if user.first_name else "کاربر"
+    
+    # دریافت پیام با اسم کاربر
+    start_message = message_customizer.get_message("start_user", name=user_name)
     
     await update.message.reply_text(
-        get_start_message(),
+        start_message,
         reply_markup=user_main_keyboard()
     )
 
