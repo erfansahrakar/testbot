@@ -1,5 +1,5 @@
 """
-✅ FEATURE #5: سفارشی‌سازی پیام‌های ربات (نسخه کامل)
+✅ FEATURE #5: سفارشی‌سازی پیام‌های ربات (سینک شده با فایل‌های جدید)
 ادمین می‌تونه متن پیام‌های بات رو تغییر بده
 """
 import json
@@ -17,60 +17,103 @@ EDIT_MESSAGE = 1
 # فایل ذخیره پیام‌های سفارشی
 CUSTOM_MESSAGES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "custom_messages.json")
 
-# ✅ پیام‌های پیش‌فرض (کامل)
+# ✅ پیام‌های پیش‌فرض (دقیقاً مطابق با config.py و استفاده واقعی)
 DEFAULT_MESSAGES = {
+    # ========== پیام‌های اصلی که در کد استفاده میشن ==========
+    
     # پیام‌های شروع
     "start_user": "👋 سلام {name}!\n\n🛍 به فروشگاه ما خوش آمدید.\n\nلطفاً از منوی زیر استفاده کنید:",
-    "start_admin": "👋 سلام ادمین عزیز!\n\n🎛 به پنل مدیریت خوش آمدید.",
-    "welcome_back": "👋 خوش آمدید!\n\nچه کمکی می‌تونیم بکنیم؟",
+    "start_admin": "👨‍💼 پنل مدیریت\n\nبرای شروع از منوی زیر استفاده کنید.",
     
-    # پیام‌های محصول
-    "product_added": "✅ محصول با موفقیت ثبت شد!",
-    "product_not_found": "❌ محصول یافت نشد!",
+    # پیام‌های محصول (استفاده میشن)
+    "product_added": "✅ محصول با موفقیت اضافه شد!",
+    "pack_added": "✅ پک به محصول اضافه شد!",
     
-    # پیام‌های سبد خرید
-    "cart_empty": "🛒 سبد خرید شما خالی است!\n\nاز منوی اصلی محصولات را مشاهده کنید.",
+    # پیام‌های سفارش (استفاده میشن)
+    "order_received": "📦 سفارش شما ثبت شد!\n\nلطفاً منتظر تایید ادمین باشید.",
+    "order_confirmed": "✅ سفارش شما تایید شد!\n\n💳 لطفاً مبلغ {amount} تومان را به شماره کارت زیر واریز کنید:\n\n{card}\n\n{iban}\n\nبه نام: {holder}\n\n📷 بعد از واریز، رسید را ارسال کنید.\n\n⏰ سفارش شما تا یک ساعت برای پرداخت فعال می‌باشد و بعد از یک ساعت سفارش لغو خواهد شد.",
+    "order_rejected": "❌ متأسفانه سفارش شما رد شد.",
+    
+    # پیام‌های پرداخت (استفاده میشن)
+    "receipt_received": "✅ رسید شما دریافت شد!\n\nلطفاً منتظر تایید نهایی باشید.",
+    "payment_confirmed": "✅ پرداخت شما تایید شد!\n\n🎉 سفارش شما در حال آماده‌سازی است.",
+    "payment_rejected": "❌ رسید شما رد شد. لطفاً دوباره تلاش کنید.",
+    
+    # ========== پیام‌های اضافی (ممکنه استفاده بشن) ==========
+    
+    # محصولات
+    "product_not_found": "❌ محصول یافت نشد.",
+    "product_unavailable": "❌ این محصول فعلاً موجود نیست.",
+    "product_deleted": "✅ محصول حذف شد.",
+    
+    # سبد خرید
+    "cart_empty": "🛒 سبد خرید شما خالی است!",
+    "cart_cleared": "✅ سبد خرید شما خالی شد.",
     "added_to_cart": "✅ به سبد خرید اضافه شد!",
     "removed_from_cart": "🗑 از سبد خرید حذف شد!",
-    "cart_cleared": "🗑 سبد خرید خالی شد!",
+    "cart_error": "❌ خطا در بروزرسانی سبد!",
     
-    # پیام‌های سفارش (مهم!)
-    "order_received": "✅ **سفارش شما ثبت نهایی شد!**\n\n📦 سفارش شما به‌زودی ارسال خواهد شد.\n\n🙏 از خرید شما سپاسگزاریم!",
-    "order_confirmed": "✅ سفارش شما تایید شد!\n\n📦 به‌زودی ارسال خواهد شد.",
-    "order_rejected": "❌ متأسفانه سفارش شما رد شد.\n\nلطفاً با پشتیبانی تماس بگیرید.",
+    # سفارشات
     "order_shipped": "📦 سفارش شما ارسال شد!\n\n🚚 کد رهگیری: {tracking_code}",
     "order_cancelled": "❌ سفارش شما لغو شد.",
+    "order_expired": "⏰ این سفارش منقضی شده است!\n\n💡 می‌توانید آن را حذف کنید و سفارش جدیدی ثبت کنید.",
+    "no_orders": "📭 شما هنوز سفارشی ثبت نکرده‌اید.",
+    "order_details_confirmed": "✅ اطلاعات تایید شد",
     
-    # پیام‌های پرداخت
-    "payment_waiting": "💳 لطفاً رسید پرداخت خود را ارسال کنید.\n\n⏰ زمان: {minutes} دقیقه",
-    "payment_received": "✅ رسید پرداخت شما دریافت شد!\n\nدر حال بررسی...",
-    "payment_confirmed": "✅ پرداخت شما تایید شد!",
-    "payment_rejected": "❌ متأسفانه پرداخت شما تایید نشد.\n\nلطفاً دوباره تلاش کنید.",
+    # پرداخت
+    "payment_waiting": "💳 لطفاً رسید پرداخت خود را ارسال کنید.\n\n⏰ زمان باقی‌مانده: {minutes} دقیقه",
+    "no_pending_receipts": "📭 رسید پرداختی برای تایید وجود ندارد.",
+    "no_pending_payments": "شما سفارش در انتظار پرداختی ندارید.",
     
-    # پیام‌های تخفیف
-    "discount_applied": "🎁 تخفیف با موفقیت اعمال شد!\n\n💰 مبلغ تخفیف: {amount:,} تومان",
+    # تخفیف
+    "discount_applied": "✅ کد تخفیف اعمال شد!\n\n💰 مبلغ تخفیف: {amount} تومان",
     "discount_invalid": "❌ کد تخفیف نامعتبر است!",
-    "discount_expired": "❌ کد تخفیف منقضی شده است!",
-    "discount_used": "❌ شما قبلاً از این کد استفاده کرده‌اید!",
+    "discount_expired": "❌ این کد تخفیف منقضی شده است!",
+    "discount_limit_reached": "❌ این کد تخفیف به حداکثر تعداد استفاده رسیده است!",
+    "discount_min_purchase": "❌ حداقل خرید برای این کد: {amount} تومان",
+    "discount_already_used": "❌ شما قبلاً از این کد استفاده کرده‌اید!",
+    "discount_removed": "🗑 کد تخفیف حذف شد.",
     
-    # پیام‌های آدرس
+    # آدرس و اطلاعات
     "address_saved": "✅ آدرس شما ذخیره شد!",
-    "address_required": "📍 لطفاً آدرس خود را وارد کنید:",
+    "address_required": "📍 لطفاً آدرس کامل خود را وارد کنید:",
     "phone_required": "📞 لطفاً شماره موبایل خود را وارد کنید:",
     "name_required": "👤 لطفاً نام و نام خانوادگی خود را وارد کنید:",
+    "invalid_phone": "❌ شماره موبایل نامعتبر است! لطفاً یک شماره معتبر وارد کنید.",
+    "invalid_name": "❌ نام وارد شده نامعتبر است!",
+    "info_updated": "✅ اطلاعات شما به‌روزرسانی شد.",
     
-    # پیام‌های خطا
+    # خطاها
     "error_general": "❌ خطایی رخ داد! لطفاً دوباره تلاش کنید.",
     "error_network": "❌ خطا در اتصال! لطفاً بعداً تلاش کنید.",
     "error_database": "❌ خطا در دیتابیس! با پشتیبانی تماس بگیرید.",
+    "error_order_submit": "❌ خطا در ثبت سفارش! لطفاً دوباره تلاش کنید.",
     
-    # پیام‌های موفقیت عمومی
+    # عمومی
     "success_general": "✅ عملیات با موفقیت انجام شد!",
     "cancelled": "❌ عملیات لغو شد.",
+    "confirmed": "✅ تایید شد!",
+    "welcome_back": "👋 خوش آمدید!\n\nچه کمکی می‌تونیم بکنیم؟",
+    "thank_you": "🙏 از خرید شما سپاسگزاریم!",
     
-    # پیام‌های راهنما
-    "help_text": "📖 **راهنمای استفاده از ربات**\n\n1. محصولات را مشاهده کنید\n2. به سبد خرید اضافه کنید\n3. سفارش خود را نهایی کنید\n4. رسید پرداخت را ارسال کنید",
-    "contact_info": "📞 **تماس با ما**\n\nشماره تماس: {phone}\nآدرس: {address}",
+    # راهنما
+    "help_text": "📖 **راهنمای استفاده از ربات**\n\n1. محصولات را از کانال مشاهده کنید\n2. روی لینک محصول کلیک کنید\n3. به سبد خرید اضافه کنید\n4. سفارش خود را نهایی کنید\n5. رسید پرداخت را ارسال کنید",
+    "contact_info": "📞 **تماس با ما**\n\n📱 شماره تماس: {phone}\n✈️ تلگرام: {telegram_id}\n📢 کانال: {channel}\n\n🕐 ساعات پاسخگویی: {support_hours}",
+    
+    # ادمین
+    "admin_order_pending": "📋 سفارشات در انتظار تایید: {count} سفارش",
+    "admin_no_pending_orders": "📭 سفارشی در انتظار تایید وجود ندارد.",
+    "admin_receipts_pending": "💳 رسیدهای در انتظار تایید: {count} رسید",
+    "admin_no_pending_receipts": "📭 رسید پرداختی برای تایید وجود ندارد.",
+    "admin_orders_unshipped": "📦 سفارشات ارسال نشده: {count} سفارش",
+    "admin_no_unshipped": "📭 سفارشی ارسال نشده وجود نداشت.",
+    "admin_orders_shipped": "✅ سفارشات ارسال شده: {count} سفارش",
+    "admin_no_shipped": "📭 سفارشی ارسال شده وجود نداشت.",
+    
+    # Broadcast
+    "broadcast_started": "📢 پیام شما در حال ارسال به {count} کاربر است...",
+    "broadcast_completed": "✅ پیام به {success} کاربر ارسال شد.\n❌ {failed} کاربر ناموفق.",
+    "broadcast_cancelled": "❌ ارسال پیام لغو شد.",
 }
 
 
@@ -107,7 +150,7 @@ class MessageCustomizer:
         
         Args:
             key: کلید پیام
-            **kwargs: متغیرهایی که باید جایگزین بشن (مثل {name})
+            **kwargs: متغیرهایی که باید جایگزین بشن
         
         Returns:
             str: متن پیام
@@ -124,6 +167,9 @@ class MessageCustomizer:
             return message.format(**kwargs)
         except KeyError as e:
             logger.warning(f"Missing variable in message {key}: {e}")
+            return message
+        except Exception as e:
+            logger.error(f"Error formatting message {key}: {e}")
             return message
     
     def set_message(self, key, value):
@@ -145,15 +191,33 @@ class MessageCustomizer:
     def get_categories(self):
         """دسته‌بندی پیام‌ها"""
         categories = {
-            "🏠 شروع": ["start_user", "start_admin", "welcome_back"],
-            "📦 محصولات": ["product_added", "product_not_found"],
-            "🛒 سبد خرید": ["cart_empty", "added_to_cart", "removed_from_cart", "cart_cleared"],
-            "📋 سفارش": ["order_received", "order_confirmed", "order_rejected", "order_shipped", "order_cancelled"],
-            "💳 پرداخت": ["payment_waiting", "payment_received", "payment_confirmed", "payment_rejected"],
-            "🎁 تخفیف": ["discount_applied", "discount_invalid", "discount_expired", "discount_used"],
-            "📍 آدرس": ["address_saved", "address_required", "phone_required", "name_required"],
-            "❌ خطا": ["error_general", "error_network", "error_database"],
-            "✅ عمومی": ["success_general", "cancelled", "help_text", "contact_info"],
+            "🏠 شروع و خوشامد": ["start_user", "start_admin", "welcome_back"],
+            "📦 محصولات": ["product_added", "pack_added", "product_not_found", "product_unavailable", "product_deleted"],
+            "🛒 سبد خرید": ["cart_empty", "cart_cleared", "added_to_cart", "removed_from_cart", "cart_error"],
+            "📋 سفارشات": [
+                "order_received", "order_confirmed", "order_rejected", "order_shipped",
+                "order_cancelled", "order_expired", "no_orders", "order_details_confirmed"
+            ],
+            "💳 پرداخت": [
+                "receipt_received", "payment_confirmed", "payment_rejected",
+                "payment_waiting", "no_pending_receipts", "no_pending_payments"
+            ],
+            "🎁 تخفیف": [
+                "discount_applied", "discount_invalid", "discount_expired",
+                "discount_limit_reached", "discount_min_purchase", "discount_already_used", "discount_removed"
+            ],
+            "📍 آدرس": [
+                "address_saved", "address_required", "phone_required", "name_required",
+                "invalid_phone", "invalid_name", "info_updated"
+            ],
+            "❌ خطاها": ["error_general", "error_network", "error_database", "error_order_submit"],
+            "✅ عمومی": ["success_general", "cancelled", "confirmed", "thank_you", "help_text", "contact_info"],
+            "👨‍💼 پیام‌های ادمین": [
+                "admin_order_pending", "admin_no_pending_orders", "admin_receipts_pending",
+                "admin_no_pending_receipts", "admin_orders_unshipped", "admin_no_unshipped",
+                "admin_orders_shipped", "admin_no_shipped"
+            ],
+            "📢 پیام همگانی": ["broadcast_started", "broadcast_completed", "broadcast_cancelled"],
         }
         return categories
 
@@ -165,11 +229,15 @@ message_customizer = MessageCustomizer()
 # ==================== Handler Functions ====================
 
 async def customize_messages_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """منوی سفارشی‌سازی پیام‌ها با دسته‌بندی"""
+    """منوی سفارشی‌سازی پیام‌ها"""
+    # Check message or callback
+    message = update.message or (update.callback_query.message if update.callback_query else None)
+    if not message:
+        return
+    
     if not update.effective_user or update.effective_user.id != ADMIN_ID:
         return
     
-    # نمایش دسته‌بندی‌ها
     categories = message_customizer.get_categories()
     
     keyboard = []
@@ -180,12 +248,20 @@ async def customize_messages_menu(update: Update, context: ContextTypes.DEFAULT_
     
     keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="back_to_admin")])
     
-    await update.message.reply_text(
-        "⚙️ **سفارشی‌سازی پیام‌ها**\n\n"
-        "یک دسته انتخاب کنید:",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode='Markdown'
-    )
+    text = "⚙️ **سفارشی‌سازی پیام‌ها**\n\nیک دسته انتخاب کنید:"
+    
+    if update.callback_query:
+        await update.callback_query.edit_message_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
+        )
+    else:
+        await message.reply_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
+        )
 
 
 async def show_category_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -202,7 +278,6 @@ async def show_category_messages(update: Update, context: ContextTypes.DEFAULT_T
     
     keyboard = []
     for key in message_keys:
-        # چک کن سفارشی شده یا نه
         is_custom = key in message_customizer.custom_messages
         emoji = "✏️" if is_custom else "📝"
         
@@ -217,9 +292,8 @@ async def show_category_messages(update: Update, context: ContextTypes.DEFAULT_T
     
     await query.edit_message_text(
         f"⚙️ **{category_name}**\n\n"
-        "📝 = پیش‌فرض\n"
-        "✏️ = سفارشی شده\n\n"
-        "برای ویرایش یک پیام، روی آن کلیک کنید:",
+        "📝 = پیش‌فرض | ✏️ = سفارشی شده\n\n"
+        "برای ویرایش روی پیام کلیک کنید:",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode='Markdown'
     )
@@ -235,40 +309,29 @@ async def show_message_preview(update: Update, context: ContextTypes.DEFAULT_TYP
     
     key = query.data.split(':')[1]
     
-    # دریافت پیام فعلی
     current_message = message_customizer.get_message(key)
     is_custom = key in message_customizer.custom_messages
     default_message = DEFAULT_MESSAGES.get(key, "")
     
-    # نمایش
-    text = f"📝 **ویرایش پیام: `{key}`**\n\n"
+    text = f"📝 **ویرایش: `{key}`**\n\n"
     text += f"{'✏️ متن فعلی (سفارشی):' if is_custom else '📝 متن فعلی (پیش‌فرض):'}\n"
     text += f"```\n{current_message}\n```\n\n"
     
     if is_custom and default_message:
-        text += f"📌 متن پیش‌فرض:\n"
-        text += f"```\n{default_message}\n```\n\n"
+        text += f"📌 متن پیش‌فرض:\n```\n{default_message}\n```\n\n"
     
-    text += "💡 متغیرهای قابل استفاده:\n"
-    text += "• `{name}` - نام کاربر\n"
-    text += "• `{amount}` - مبلغ\n"
-    text += "• `{minutes}` - دقیقه\n"
-    text += "• `{tracking_code}` - کد رهگیری\n"
-    text += "• `{phone}` - شماره تلفن\n"
-    text += "• `{address}` - آدرس\n"
+    text += "💡 متغیرها:\n"
+    text += "`{name}` `{amount}` `{card}` `{iban}` `{holder}`\n"
+    text += "`{tracking_code}` `{channel}` `{phone}` `{count}`"
     
     keyboard = [
         [InlineKeyboardButton("✏️ ویرایش", callback_data=f"msg_start_edit:{key}")],
     ]
     
     if is_custom:
-        keyboard.append([
-            InlineKeyboardButton("🔄 بازگشت به پیش‌فرض", callback_data=f"msg_reset:{key}")
-        ])
+        keyboard.append([InlineKeyboardButton("🔄 بازگشت به پیش‌فرض", callback_data=f"msg_reset:{key}")])
     
-    keyboard.append([
-        InlineKeyboardButton("🔙 بازگشت", callback_data="msg_back_to_list")
-    ])
+    keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="msg_back_to_list")])
     
     await query.edit_message_text(
         text,
@@ -289,14 +352,10 @@ async def start_edit_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
     context.user_data['editing_message_key'] = key
     
     await query.edit_message_text(
-        f"✏️ **ویرایش پیام: `{key}`**\n\n"
-        "لطفاً متن جدید را ارسال کنید:\n\n"
-        "💡 می‌توانید از متغیرها استفاده کنید:\n"
-        "• `{{name}}` - نام کاربر\n"
-        "• `{{amount}}` - مبلغ\n"
-        "• `{{minutes}}` - دقیقه\n"
-        "• `{{tracking_code}}` - کد رهگیری\n\n"
-        "برای لغو، /cancel را ارسال کنید.",
+        f"✏️ **ویرایش: `{key}`**\n\n"
+        "لطفاً متن جدید را ارسال کنید.\n\n"
+        "💡 متغیرها: `{{name}}` `{{amount}}` `{{card}}` ...\n\n"
+        "لغو: /cancel",
         parse_mode='Markdown'
     )
     
@@ -304,35 +363,31 @@ async def start_edit_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def receive_new_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """دریافت متن جدید پیام"""
+    """دریافت متن جدید"""
     if not update.effective_user or update.effective_user.id != ADMIN_ID:
         return ConversationHandler.END
     
     key = context.user_data.get('editing_message_key')
     if not key:
-        await update.message.reply_text("❌ خطا! لطفاً دوباره تلاش کنید.")
+        await update.message.reply_text("❌ خطا! دوباره تلاش کنید.")
         return ConversationHandler.END
     
     new_message = update.message.text
     
-    # ذخیره
     if message_customizer.set_message(key, new_message):
         await update.message.reply_text(
-            f"✅ پیام `{key}` با موفقیت به‌روز شد!\n\n"
-            f"📝 متن جدید:\n```\n{new_message}\n```",
+            f"✅ پیام `{key}` به‌روز شد!\n\n```\n{new_message}\n```",
             parse_mode='Markdown'
         )
     else:
-        await update.message.reply_text("❌ خطا در ذخیره پیام!")
+        await update.message.reply_text("❌ خطا در ذخیره!")
     
-    # پاک کردن
     context.user_data.pop('editing_message_key', None)
-    
     return ConversationHandler.END
 
 
 async def reset_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """بازگشت به پیام پیش‌فرض"""
+    """بازگشت به پیش‌فرض"""
     query = update.callback_query
     await query.answer()
     
@@ -344,36 +399,28 @@ async def reset_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if message_customizer.reset_message(key):
         default_message = DEFAULT_MESSAGES.get(key, "")
         await query.edit_message_text(
-            f"✅ پیام `{key}` به حالت پیش‌فرض بازگشت!\n\n"
-            f"📝 متن پیش‌فرض:\n```\n{default_message}\n```",
+            f"✅ `{key}` به پیش‌فرض بازگشت!\n\n```\n{default_message}\n```",
             parse_mode='Markdown'
         )
     else:
-        await query.edit_message_text("❌ خطا در بازگشت به پیش‌فرض!")
+        await query.edit_message_text("❌ خطا!")
 
 
 async def cancel_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """لغو ویرایش"""
     context.user_data.pop('editing_message_key', None)
-    await update.message.reply_text("❌ ویرایش لغو شد.")
+    await update.message.reply_text("❌ لغو شد.")
     return ConversationHandler.END
 
 
-# Conversation Handler برای ویرایش پیام
 def get_message_customizer_conversation():
-    """دریافت ConversationHandler برای سفارشی‌سازی پیام‌ها"""
+    """ConversationHandler"""
     from telegram.ext import CallbackQueryHandler, MessageHandler, CommandHandler, filters
     
     return ConversationHandler(
-        entry_points=[
-            CallbackQueryHandler(start_edit_message, pattern="^msg_start_edit:")
-        ],
+        entry_points=[CallbackQueryHandler(start_edit_message, pattern="^msg_start_edit:")],
         states={
-            EDIT_MESSAGE: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_new_message),
-            ],
+            EDIT_MESSAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_new_message)],
         },
-        fallbacks=[
-            CommandHandler("cancel", cancel_edit),
-        ],
+        fallbacks=[CommandHandler("cancel", cancel_edit)],
     )
