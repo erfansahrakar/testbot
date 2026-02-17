@@ -2,6 +2,7 @@
 توابع اضافی برای ویرایش محصولات و پک‌ها
 
 """
+import html
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
 from config import ADMIN_ID, CHANNEL_USERNAME
@@ -33,14 +34,17 @@ async def edit_product_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     prod_id, name, desc, photo_id, channel_msg_id, created_at = product
     
-    text = f"✏️ **ویرایش محصول**\n\n"
-    text += f"📦 نام: {name}\n"
-    text += f"📝 توضیحات: {desc[:50]}...\n\n"
+    safe_name = html.escape(name or "بدون نام")
+    safe_desc = html.escape((desc or "")[:50])
+    
+    text = f"✏️ <b>ویرایش محصول</b>\n\n"
+    text += f"📦 نام: {safe_name}\n"
+    text += f"📝 توضیحات: {safe_desc}{'...' if desc and len(desc) > 50 else ''}\n\n"
     text += "چه چیزی را می‌خواهید ویرایش کنید؟"
     
     await query.message.reply_text(
         text,
-        parse_mode='Markdown',
+        parse_mode='HTML',
         reply_markup=edit_product_keyboard(product_id)
     )
 
@@ -202,13 +206,13 @@ async def view_packs_with_edit(update: Update, context: ContextTypes.DEFAULT_TYP
     
     for pack in packs:
         pack_id, _, name, quantity, price = pack
-        text = f"📦 **{name}**\n\n"
+        text = f"📦 <b>{html.escape(name)}</b>\n\n"
         text += f"🔢 تعداد: {quantity}\n"
         text += f"💰 قیمت: {price:,.0f} تومان"
         
         await query.message.reply_text(
             text,
-            parse_mode='Markdown',
+            parse_mode='HTML',
             reply_markup=pack_management_keyboard(pack_id, product_id)
         )
 
@@ -397,13 +401,13 @@ async def edit_in_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     packs = db.get_packs(product_id)
     
     # ساخت متن جدید
-    caption = f"🏷 **{name}**\n\n"
-    caption += f"{desc}\n\n"
+    caption = f"🏷 <b>{html.escape(name)}</b>\n\n"
+    caption += f"{html.escape(desc or '')}\n\n"
     
     # 🔴 🆕 چک کردن پک‌ها - اگه نباشه دکمه ناموجود نشون بده
     if not packs or len(packs) == 0:
         # هیچ پکی وجود ندارد - محصول ناموجود
-        caption += "⚠️ **متأسفانه این محصول موقتاً ناموجود است**\n\n"
+        caption += "⚠️ <b>متأسفانه این محصول موقتاً ناموجود است</b>\n\n"
         caption += "💡 برای اطلاع از موجود شدن با ما در تماس باشید:\n"
         caption += f"📞 @{CHANNEL_USERNAME}"
         
@@ -414,14 +418,14 @@ async def edit_in_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     else:
         # پک دارد - نمایش عادی
-        caption += "📦 **پک‌های موجود:**\n\n"
+        caption += "📦 <b>پک‌های موجود:</b>\n\n"
         
         pack_names = ["اول", "دوم", "سوم", "چهارم", "پنجم", "ششم", "هفتم", "هشتم", "نهم", "دهم"]
         
         for idx, pack in enumerate(packs):
             _, _, pack_name, quantity, price = pack
             pack_num = pack_names[idx] if idx < len(pack_names) else f"{idx + 1}"
-            caption += f"📦 پک {pack_num}: {pack_name} - {price:,.0f} تومان\n"
+            caption += f"📦 پک {pack_num}: {html.escape(pack_name)} - {price:,.0f} تومان\n"
         
         caption += "\n💎 برای سفارش روی دکمه پک مورد نظر کلیک کنید 👇"
         
@@ -450,7 +454,7 @@ async def edit_in_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 chat_id=f"@{CHANNEL_USERNAME}",
                 message_id=channel_msg_id,
                 caption=caption,
-                parse_mode='Markdown',
+                parse_mode='HTML',
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
         else:
@@ -458,7 +462,7 @@ async def edit_in_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 chat_id=f"@{CHANNEL_USERNAME}",
                 message_id=channel_msg_id,
                 text=caption,
-                parse_mode='Markdown',
+                parse_mode='HTML',
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
         
