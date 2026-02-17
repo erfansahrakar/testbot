@@ -473,10 +473,9 @@ class Database:
             return False
     
     def delete_product(self, product_id: int):
+        # ✅ FIX #11: حذف دستورات اضافی - FOREIGN KEY CASCADE خودکار این کار رو میکنه
         with self.transaction() as cursor:
             cursor.execute("DELETE FROM products WHERE id = ?", (product_id,))
-            cursor.execute("DELETE FROM packs WHERE product_id = ?", (product_id,))
-            cursor.execute("DELETE FROM cart WHERE product_id = ?", (product_id,))
         
         self._invalidate_cache(f"product:{product_id}")
         self._invalidate_cache(f"packs:{product_id}")
@@ -581,7 +580,10 @@ class Database:
     
     def add_to_cart(self, user_id: int, product_id: int, pack_id: int, quantity: int = 1):
         """
-        ✅ FIXED: استفاده از INSERT ... ON CONFLICT
+        ✅ FIX #8: quantity = تعداد پک (نه تعداد آیتم)
+        
+        مثال: کاربر ۲ پک از "پک ۳تایی" میخواد → quantity=2 ذخیره میشه
+        موقع نمایش سبد، quantity × pack_quantity محاسبه میشه
         """
         try:
             pack = self.get_pack(pack_id)
@@ -589,19 +591,18 @@ class Database:
                 logger.warning(f"⚠️ Pack {pack_id} not found")
                 return
             
-            pack_quantity = pack[3]
-            actual_quantity = quantity * pack_quantity
-            
+            # ✅ FIX #8: فقط تعداد پک رو ذخیره کن (نه ضرب در pack_quantity)
+            # pack_quantity برای محاسبه قیمت و نمایش استفاده میشه، نه برای ذخیره
             with self.transaction() as cursor:
                 cursor.execute("""
                     INSERT INTO cart (user_id, product_id, pack_id, quantity) 
                     VALUES (?, ?, ?, ?)
                     ON CONFLICT(user_id, pack_id) DO UPDATE 
                     SET quantity = quantity + excluded.quantity
-                """, (user_id, product_id, pack_id, actual_quantity))
+                """, (user_id, product_id, pack_id, quantity))
             
             self._invalidate_cache(f"cart:{user_id}")
-            logger.info(f"✅ Cart updated: user={user_id}, pack={pack_id}, qty={actual_quantity}")
+            logger.info(f"✅ Cart updated: user={user_id}, pack={pack_id}, qty={quantity}")
             
         except Exception as e:
             logger.error(f"❌ Cart error: {e}")
@@ -626,14 +627,14 @@ class Database:
         self._invalidate_cache(f"cart:{user_id}")
     
     def remove_from_cart(self, cart_id: int):
+        # ✅ FIX #7: استفاده از transaction برای consistency
         conn = self._get_conn()
         cursor = conn.cursor()
-        
         cursor.execute("SELECT user_id FROM cart WHERE id = ?", (cart_id,))
         result = cursor.fetchone()
         
-        cursor.execute("DELETE FROM cart WHERE id = ?", (cart_id,))
-        conn.commit()
+        with self.transaction() as cur:
+            cur.execute("DELETE FROM cart WHERE id = ?", (cart_id,))
         
         if result:
             self._invalidate_cache(f"cart:{result[0]}")
@@ -700,13 +701,14 @@ class Database:
         conn = self._get_conn()
         cursor = conn.cursor()
     
+        # ✅ FIX #3: تصحیح timezone - offset تهران (+3:30) اضافه شد
         cursor.execute("""
             SELECT * FROM orders 
             WHERE user_id = ? 
             AND status != 'rejected'
             AND (
                 status IN ('payment_confirmed', 'confirmed')
-                OR datetime(expires_at) > datetime('now')
+                OR datetime(expires_at) > datetime('now', '+3 hours', '+30 minutes')
             )
             ORDER BY created_at DESC
         """, (user_id,))
@@ -751,14 +753,14 @@ class Database:
             conn = self._get_conn()
             cursor = conn.cursor()
             
-            # ✅ FIX: استفاده از زمان تهران
             cutoff_date = get_tehran_now() - timedelta(days=days_old)
             
+            # ✅ FIX #3: تصحیح timezone - offset تهران (+3:30) اضافه شد
             cursor.execute("""
                 SELECT COUNT(*) FROM orders 
                 WHERE (
                     status = 'rejected' 
-                    OR (datetime(expires_at) < datetime('now') AND status NOT IN ('payment_confirmed', 'confirmed'))
+                    OR (datetime(expires_at) < datetime('now', '+3 hours', '+30 minutes') AND status NOT IN ('payment_confirmed', 'confirmed'))
                 )
                 AND datetime(created_at) < datetime(?)
             """, (cutoff_date,))
@@ -769,7 +771,7 @@ class Database:
                 DELETE FROM orders 
                 WHERE (
                     status = 'rejected' 
-                    OR (datetime(expires_at) < datetime('now') AND status NOT IN ('payment_confirmed', 'confirmed'))
+                    OR (datetime(expires_at) < datetime('now', '+3 hours', '+30 minutes') AND status NOT IN ('payment_confirmed', 'confirmed'))
                 )
                 AND datetime(created_at) < datetime(?)
             """, (cutoff_date,))
