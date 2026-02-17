@@ -334,6 +334,8 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def global_rate_limit_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """بررسی محدودیت سراسری"""
+    from telegram.ext import ApplicationHandlerStop
+    
     if not update.effective_user:
         return
     
@@ -350,35 +352,29 @@ async def global_rate_limit_check(update: Update, context: ContextTypes.DEFAULT_
     )
     
     if not allowed:
-        # ✅ فقط اگه show_alert=True باشه، پیام بده
-        if not show_alert:
-            return  # Silent mode
+        if show_alert:
+            minutes = remaining_time // 60
+            seconds = remaining_time % 60
+            wait_msg = f"{minutes} دقیقه و {seconds} ثانیه" if minutes > 0 else f"{seconds} ثانیه"
+            
+            try:
+                if update.message:
+                    await update.message.reply_text(
+                        f"🛑 **محدودیت درخواست!**\n\n"
+                        f"⏰ لطفاً {wait_msg} صبر کنید.\n\n"
+                        f"💡 محدودیت: 20 درخواست در دقیقه",
+                        parse_mode='Markdown'
+                    )
+                elif update.callback_query:
+                    await update.callback_query.answer(
+                        f"⚠️ لطفاً {wait_msg} صبر کنید",
+                        show_alert=True
+                    )
+            except Exception as e:
+                logger.error(f"❌ Rate limit error: {e}")
         
-        minutes = remaining_time // 60
-        seconds = remaining_time % 60
-        
-        if minutes > 0:
-            wait_msg = f"{minutes} دقیقه و {seconds} ثانیه"
-        else:
-            wait_msg = f"{seconds} ثانیه"
-        
-        try:
-            if update.message:
-                await update.message.reply_text(
-                    f"🛑 **محدودیت درخواست!**\n\n"
-                    f"⏰ لطفاً {wait_msg} صبر کنید.\n\n"
-                    f"💡 محدودیت: 20 درخواست در دقیقه",
-                    parse_mode='Markdown'
-                )
-            elif update.callback_query:
-                await update.callback_query.answer(
-                    f"⚠️ لطفاً {wait_msg} صبر کنید",
-                    show_alert=True
-                )
-        except Exception as e:
-            logger.error(f"❌ Rate limit error: {e}")
-        
-        return
+        # ✅ FIX #6: متوقف کردن همه handler های بعدی
+        raise ApplicationHandlerStop
 
 
 def setup_signal_handlers(application, db):
@@ -589,6 +585,22 @@ def main():
             logger.warning("⚠️ JobQueue در دسترس نیست - به‌روزرسانی آمار غیرفعال است")
     except Exception as e:
         logger.warning(f"⚠️ خطا در راه‌اندازی به‌روزرسانی آمار: {e}")
+    
+    # 🆕 FIX #5: پاکسازی خودکار RateLimiter (هر ساعت) - جلوگیری از Memory Leak
+    try:
+        if hasattr(application, 'job_queue') and application.job_queue is not None:
+            async def cleanup_rate_limiter(context):
+                rate_limiter.cleanup_stale_users(max_idle_seconds=3600)
+            
+            application.job_queue.run_repeating(
+                cleanup_rate_limiter,
+                interval=3600,
+                first=60,
+                name="rate_limiter_cleanup"
+            )
+            logger.info("✅ پاکسازی خودکار RateLimiter فعال شد (هر 1 ساعت)")
+    except Exception as e:
+        logger.warning(f"⚠️ خطا در راه‌اندازی پاکسازی RateLimiter: {e}")
     
     # ==================== ConversationHandler ها ====================
     
@@ -885,16 +897,15 @@ def main():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_messages))
     application.add_handler(MessageHandler(filters.PHOTO, handle_photos))
     
-    # ✅ Error handler با set_error برای monitoring
+    # ✅ FIX #1 & #2: رفع import اشتباه + حذف ثبت دوباره error handler
     async def error_handler_with_monitoring(update, context):
-        from error_handler import error_handler
+        # از error_handler محلی همین فایل استفاده میکنیم، نه import اشتباه
         if MONITORING_AVAILABLE:
             set_error(str(context.error)[:100])
         await error_handler(update, context)
     
+    # ✅ فقط یه بار ثبت میشه
     application.add_error_handler(error_handler_with_monitoring)
-    
-    application.add_error_handler(error_handler)
     
     # شروع ربات
     logger.info("🤖 ربات با قابلیت‌های جدید شروع به کار کرد!")
