@@ -1,14 +1,29 @@
-"""
-سیستم بکاپ خودکار دیتابیس
-"""
 import os
-import shutil
+import sqlite3
 import logging
 from datetime import datetime
 from telegram.ext import ContextTypes
 from config import DATABASE_NAME, BACKUP_FOLDER, BACKUP_HOUR, BACKUP_MINUTE, ADMIN_ID
 
 logger = logging.getLogger(__name__)
+
+
+def safe_sqlite_backup(source_db: str, dest_path: str):
+    """
+    ✅ FIX #10: بکاپ ایمن با SQLite Backup API
+    
+    برتری نسبت به shutil.copy2:
+    - بکاپ consistent حتی در حین نوشتن
+    - سازگار با WAL mode
+    - بدون corruption احتمالی
+    """
+    src = sqlite3.connect(source_db)
+    dst = sqlite3.connect(dest_path)
+    try:
+        src.backup(dst)
+    finally:
+        dst.close()
+        src.close()
 
 
 def setup_backup_folder():
@@ -28,8 +43,8 @@ async def create_backup(context: ContextTypes.DEFAULT_TYPE):
         backup_filename = f"backup_{timestamp}.db"
         backup_path = os.path.join(BACKUP_FOLDER, backup_filename)
         
-        # کپی دیتابیس
-        shutil.copy2(DATABASE_NAME, backup_path)
+        # ✅ FIX #10: بکاپ ایمن با SQLite API به جای shutil.copy2
+        safe_sqlite_backup(DATABASE_NAME, backup_path)
         
         # حذف بکاپ‌های قدیمی (نگه‌داری فقط 7 بکاپ آخر)
         cleanup_old_backups(keep_count=7)
