@@ -580,10 +580,9 @@ class Database:
     
     def add_to_cart(self, user_id: int, product_id: int, pack_id: int, quantity: int = 1):
         """
-        ✅ FIX #8: quantity = تعداد پک (نه تعداد آیتم)
-        
-        مثال: کاربر ۲ پک از "پک ۳تایی" میخواد → quantity=2 ذخیره میشه
-        موقع نمایش سبد، quantity × pack_quantity محاسبه میشه
+        ✅ FIXED: استفاده از INSERT ... ON CONFLICT
+        تعداد کل آیتم ذخیره میشه: quantity × pack_quantity
+        مثال: ۱ پک ۵تایی → 5 ذخیره میشه
         """
         try:
             pack = self.get_pack(pack_id)
@@ -591,18 +590,19 @@ class Database:
                 logger.warning(f"⚠️ Pack {pack_id} not found")
                 return
             
-            # ✅ FIX #8: فقط تعداد پک رو ذخیره کن (نه ضرب در pack_quantity)
-            # pack_quantity برای محاسبه قیمت و نمایش استفاده میشه، نه برای ذخیره
+            pack_quantity = pack[3]
+            actual_quantity = quantity * pack_quantity
+            
             with self.transaction() as cursor:
                 cursor.execute("""
                     INSERT INTO cart (user_id, product_id, pack_id, quantity) 
                     VALUES (?, ?, ?, ?)
                     ON CONFLICT(user_id, pack_id) DO UPDATE 
                     SET quantity = quantity + excluded.quantity
-                """, (user_id, product_id, pack_id, quantity))
+                """, (user_id, product_id, pack_id, actual_quantity))
             
             self._invalidate_cache(f"cart:{user_id}")
-            logger.info(f"✅ Cart updated: user={user_id}, pack={pack_id}, qty={quantity}")
+            logger.info(f"✅ Cart updated: user={user_id}, pack={pack_id}, qty={actual_quantity}")
             
         except Exception as e:
             logger.error(f"❌ Cart error: {e}")
