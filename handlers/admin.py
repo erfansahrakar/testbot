@@ -2,6 +2,7 @@
 هندلرهای مربوط به پنل ادمین
 
 """
+import html
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
@@ -500,13 +501,13 @@ async def get_channel_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     _, name, desc, photo_id, *_ = product
     
-    caption = f"🏷 **{name}**\n\n"
-    caption += f"{desc}\n\n"
+    caption = f"🏷 <b>{html.escape(name)}</b>\n\n"
+    caption += f"{html.escape(desc or '')}\n\n"
     
     # 🔴 🆕 چک کردن پک‌ها - اگه نباشه دکمه ناموجود نشون بده
     if not packs or len(packs) == 0:
         # هیچ پکی وجود ندارد - محصول ناموجود
-        caption += "⚠️ **متأسفانه این محصول موقتاً ناموجود است**\n\n"
+        caption += "⚠️ <b>متأسفانه این محصول موقتاً ناموجود است</b>\n\n"
         caption += "💡 برای اطلاع از موجود شدن با ما در تماس باشید:\n"
         caption += f"📞 @{CHANNEL_USERNAME}"
         
@@ -517,14 +518,14 @@ async def get_channel_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     else:
         # پک دارد - نمایش عادی
-        caption += "📦 **پک‌های موجود:**\n\n"
+        caption += "📦 <b>پک‌های موجود:</b>\n\n"
         
         pack_names = ["اول", "دوم", "سوم", "چهارم", "پنجم", "ششم", "هفتم", "هشتم", "نهم", "دهم"]
         
         for idx, pack in enumerate(packs):
             _, _, pack_name, quantity, price = pack
             pack_num = pack_names[idx] if idx < len(pack_names) else f"{idx + 1}"
-            caption += f"📦 پک {pack_num}: {pack_name} - {price:,.0f} تومان\n"
+            caption += f"📦 پک {pack_num}: {html.escape(pack_name)} - {price:,.0f} تومان\n"
         
         caption += "\n💎 برای سفارش روی دکمه پک مورد نظر کلیک کنید 👇"
         
@@ -554,14 +555,14 @@ async def get_channel_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 chat_id=f"@{CHANNEL_USERNAME}",
                 photo=photo_id,
                 caption=caption,
-                parse_mode='Markdown',
+                parse_mode='HTML',
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
         else:
             sent_message = await context.bot.send_message(
                 chat_id=f"@{CHANNEL_USERNAME}",
                 text=caption,
-                parse_mode='Markdown',
+                parse_mode='HTML',
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
         
@@ -649,7 +650,7 @@ async def show_statistics(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         stats = db.get_statistics()
     
-    text = "📊 **آمار فروشگاه**\n"
+    text = "📊 <b>آمار فروشگاه</b>\n"
     text += "═" * 25 + "\n\n"
     
     text += f"📦 تعداد کل سفارشات: {stats['total_orders']}\n"
@@ -662,4 +663,4 @@ async def show_statistics(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text += f"👥 تعداد کاربران: {stats['total_users']}\n"
     text += f"🏷 تعداد محصولات: {stats['total_products']}\n"
     
-    await update.message.reply_text(text, parse_mode='Markdown')
+    await update.message.reply_text(text, parse_mode='HTML')
