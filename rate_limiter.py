@@ -148,16 +148,47 @@ class RateLimiter:
         if user_id in self._user_requests:
             del self._user_requests[user_id]
         
-        # حذف تمام action های این کاربر
         keys_to_delete = [key for key in self._action_requests if key[0] == user_id]
         for key in keys_to_delete:
             del self._action_requests[key]
         
-        # ✅ پاک کردن alert cooldown
         if user_id in self._last_alert:
             del self._last_alert[user_id]
         
         logger.info(f"✅ Rate limits reset for user {user_id}")
+    
+    def cleanup_stale_users(self, max_idle_seconds: int = 3600):
+        """
+        ✅ FIX #5: حذف کاربرانی که مدت‌هاست فعال نیستن (جلوگیری از Memory Leak)
+        
+        این تابع باید هر ساعت یکبار از طریق JobQueue اجرا بشه:
+            application.job_queue.run_repeating(
+                lambda ctx: rate_limiter.cleanup_stale_users(),
+                interval=3600
+            )
+        """
+        now = time.time()
+        
+        stale_users = [
+            uid for uid, reqs in self._user_requests.items()
+            if not reqs or (now - max(reqs)) > max_idle_seconds
+        ]
+        
+        for uid in stale_users:
+            del self._user_requests[uid]
+            if uid in self._last_alert:
+                del self._last_alert[uid]
+        
+        stale_action_keys = [
+            key for key, reqs in self._action_requests.items()
+            if not reqs or (now - max(reqs)) > max_idle_seconds
+        ]
+        
+        for key in stale_action_keys:
+            del self._action_requests[key]
+        
+        if stale_users or stale_action_keys:
+            logger.info(f"🧹 RateLimiter cleanup: {len(stale_users)} users, {len(stale_action_keys)} actions removed")
     
     def get_stats(self, user_id: int) -> dict:
         """دریافت آمار محدودیت‌های یک کاربر"""
