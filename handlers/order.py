@@ -605,7 +605,7 @@ async def handle_item_removal(update: Update, context: ContextTypes.DEFAULT_TYPE
     discount_code = order[6]
     
     if discount_code:
-        discount = db.get_discount_by_code(discount_code)
+        discount = db.get_discount(discount_code)
         if discount:
             discount_type = discount[2]
             discount_value = discount[3]
@@ -690,7 +690,7 @@ async def handle_item_increase(update: Update, context: ContextTypes.DEFAULT_TYP
     discount_code = order[6]
     
     if discount_code:
-        discount = db.get_discount_by_code(discount_code)
+        discount = db.get_discount(discount_code)
         if discount:
             discount_type = discount[2]
             discount_value = discount[3]
@@ -780,7 +780,7 @@ async def handle_item_decrease(update: Update, context: ContextTypes.DEFAULT_TYP
     discount_code = order[6]
     
     if discount_code:
-        discount = db.get_discount_by_code(discount_code)
+        discount = db.get_discount(discount_code)
         if discount:
             discount_type = discount[2]
             discount_value = discount[3]
@@ -1341,7 +1341,7 @@ async def remove_item_from_order(update: Update, context: ContextTypes.DEFAULT_T
     new_final = new_total
     
     if discount_code:
-        discount_info = db.get_discount_by_code(discount_code)
+        discount_info = db.get_discount(discount_code)
         if discount_info:
             discount_type = discount_info[2]
             discount_value = discount_info[3]
