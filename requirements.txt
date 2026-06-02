@@ -1,0 +1,31 @@
+# کتابخانه‌های اصلی ربات تلگرام
+python-telegram-bot==20.7
+
+# کتابخانه‌های نمودار و گراف
+matplotlib==3.8.2
+numpy==1.26.3
+
+# متغیرهای محیطی
+python-dotenv==1.0.0
+
+# مانیتورینگ سیستم
+psutil==5.9.6
+
+# تاریخ شمسی
+jdatetime>=4.1.0
+
+# timezone (استفاده شده در database.py و fix_all_datetime_issues.py)
+pytz>=2024.1
+
+# وب سرور مانیتورینگ
+flask>=3.0.0
+
+# export به Excel (استفاده شده در export_manager.py)
+openpyxl>=3.1.0
+
+# تصویر (برای گراف‌های آماری)
+pillow==10.1.0
+
+# دیتابیس‌های اختیاری (در صورت نیاز به migration)
+# psycopg2-binary==2.9.9
+# PyMySQL==1.1.0

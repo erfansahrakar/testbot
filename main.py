@@ -41,6 +41,8 @@ from admin_dashboard import (
     admin_dashboard,
     handle_dashboard_callback
 )
+# FIX: import scheduled_cleanup از cleanup_scheduler (نسخه تکراری در main.py حذف شد)
+from cleanup_scheduler import scheduled_cleanup
 
 # تنظیم لاگینگ
 logging.basicConfig(
@@ -260,47 +262,6 @@ async def manual_cleanup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ خطا رخ داد: {str(e)}")
 
 
-async def scheduled_cleanup(context: ContextTypes.DEFAULT_TYPE):
-    """🆕 پاکسازی زمان‌بندی شده (خودکار)"""
-    try:
-        logger.info("🧹 شروع پاکسازی خودکار...")
-        
-        db = context.bot_data['db']
-        report = db.cleanup_old_orders(days_old=7)
-        
-        if report['success'] and report['deleted_count'] > 0:
-            # ارسال گزارش به ادمین
-            message = (
-                "🤖 **گزارش پاکسازی خودکار**\n\n"
-                f"🗑 تعداد حذف شده: {report['deleted_count']} سفارش\n"
-                f"📅 سفارشات قدیمی‌تر از: {report['days_old']} روز\n"
-                f"⏰ زمان: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-                f"✅ پاکسازی با موفقیت انجام شد."
-            )
-            
-            await context.bot.send_message(
-                ADMIN_ID,
-                message,
-                parse_mode='Markdown'
-            )
-            
-            logger.info(f"✅ پاکسازی خودکار موفق: {report['deleted_count']} سفارش حذف شد")
-        else:
-            logger.info("ℹ️ هیچ سفارش قدیمی برای حذف وجود نداشت")
-            
-    except Exception as e:
-        logger.error(f"❌ خطا در پاکسازی خودکار: {e}")
-        
-        # اطلاع به ادمین در صورت خطا
-        try:
-            await context.bot.send_message(
-                ADMIN_ID,
-                f"⚠️ خطا در پاکسازی خودکار:\n{str(e)}"
-            )
-        except:
-            pass
-
-
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """مدیریت خطاها"""
     error = context.error
@@ -401,6 +362,15 @@ def setup_signal_handlers(application, db):
 def main():
     """تابع اصلی"""
     log_startup()
+    
+    # FIX: validate_config اینجا صدا زده میشه نه موقع import
+    from config import validate_config
+    try:
+        validate_config()
+    except ValueError as e:
+        import warnings
+        warnings.warn(f"⚠️ Configuration issue: {e}")
+        print(f"\n⚠️ هشدار تنظیمات: {e}\n")
     
     start_time = time.time()
     

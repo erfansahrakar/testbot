@@ -346,17 +346,9 @@ def validate_config():
         return True
 
 
-# اجرای اعتبارسنجی
-if __name__ != "__main__":
-    try:
-        validate_config()
-    except ValueError as e:
-        warnings.warn(f"⚠️ Configuration issue: {e}")
-        print(f"\n⚠️ هشدار تنظیمات: {e}\n")
-        print("💡 راهنما:")
-        print("  1. فایل .env را در روت پروژه ایجاد کنید")
-        print("  2. از .env.example به عنوان الگو استفاده کنید")
-        print("  3. تمام متغیرهای الزامی را تنظیم کنید\n")
+# FIX: validate_config دیگه موقع هر import اجرا نمیشه
+# فقط از main.py یا مستقیم فراخوانی میشه
+# این باعث میشه تست‌ها و import های دیگه بدون print و warning اجرا بشن
 
 
 # ==================== Debug Mode ====================

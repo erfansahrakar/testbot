@@ -25,10 +25,15 @@ def temp_db():
 
 @pytest.fixture
 def db(temp_db):
-    """Database instance برای تست"""
-    from database import Database
+    """
+    Database instance برای تست
+    FIX: قبلاً patch کار نمی‌کرد چون DATABASE_NAME داخل DatabaseConnectionPool
+    مستقیم استفاده میشه. الان مستقیم temp_db رو پاس میدیم.
+    """
+    from database import Database, DatabaseConnectionPool
+    from unittest.mock import patch
     
-    # Mock config
+    # patch روی محل واقعی استفاده (داخل database module)
     with patch('database.DATABASE_NAME', temp_db):
         db_instance = Database()
         yield db_instance

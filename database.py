@@ -701,14 +701,15 @@ class Database:
         conn = self._get_conn()
         cursor = conn.cursor()
     
-        # ✅ FIX #3: تصحیح timezone - offset تهران (+3:30) اضافه شد
+        # FIX: expires_at به وقت تهران ذخیره شده، مقایسه با datetime('now') بدون offset
+        # چون هر دو naive datetime هستن و هر دو به وقت تهران ذخیره شدن
         cursor.execute("""
             SELECT * FROM orders 
             WHERE user_id = ? 
             AND status != 'rejected'
             AND (
                 status IN ('payment_confirmed', 'confirmed')
-                OR datetime(expires_at) > datetime('now', '+3 hours', '+30 minutes')
+                OR datetime(expires_at) > datetime('now', 'localtime')
             )
             ORDER BY created_at DESC
         """, (user_id,))
@@ -755,12 +756,12 @@ class Database:
             
             cutoff_date = get_tehran_now() - timedelta(days=days_old)
             
-            # ✅ FIX #3: تصحیح timezone - offset تهران (+3:30) اضافه شد
+            # FIX: مقایسه با localtime چون expires_at به وقت تهران ذخیره شده
             cursor.execute("""
                 SELECT COUNT(*) FROM orders 
                 WHERE (
                     status = 'rejected' 
-                    OR (datetime(expires_at) < datetime('now', '+3 hours', '+30 minutes') AND status NOT IN ('payment_confirmed', 'confirmed'))
+                    OR (datetime(expires_at) < datetime('now', 'localtime') AND status NOT IN ('payment_confirmed', 'confirmed'))
                 )
                 AND datetime(created_at) < datetime(?)
             """, (cutoff_date,))
@@ -771,7 +772,7 @@ class Database:
                 DELETE FROM orders 
                 WHERE (
                     status = 'rejected' 
-                    OR (datetime(expires_at) < datetime('now', '+3 hours', '+30 minutes') AND status NOT IN ('payment_confirmed', 'confirmed'))
+                    OR (datetime(expires_at) < datetime('now', 'localtime') AND status NOT IN ('payment_confirmed', 'confirmed'))
                 )
                 AND datetime(created_at) < datetime(?)
             """, (cutoff_date,))
