@@ -227,7 +227,8 @@ class ExportManager:
             cursor = conn.cursor()
             
             # ✅ Query ساده بدون JOIN
-            cursor.execute("SELECT * FROM users ORDER BY joined_at DESC")
+            # FIX: ستون created_at است نه joined_at
+            cursor.execute("SELECT * FROM users ORDER BY created_at DESC")
             users = cursor.fetchall()
             
             # ساخت Workbook
@@ -418,12 +419,6 @@ async def handle_export(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     filename=os.path.basename(filepath),
                     caption="✅ فایل آماده شد!"
                 )
-            
-            # حذف فایل موقت
-            try:
-                os.remove(filepath)
-            except:
-                pass
         else:
             await query.message.reply_text("❌ خطا در ساخت فایل!")
         
@@ -434,10 +429,11 @@ async def handle_export(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"```\n{str(e)[:200]}\n```",
             parse_mode='Markdown'
         )
-        
-        # حذف فایل در صورت خطا
+    
+    finally:
+        # ✅ FIX: حذف فایل موقت همیشه انجام میشه (حتی در صورت خطا)
         if filepath:
             try:
                 os.remove(filepath)
-            except:
-                pass
+            except Exception as cleanup_err:
+                logger.warning(f"⚠️ Could not remove temp file {filepath}: {cleanup_err}")
