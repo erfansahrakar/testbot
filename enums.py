@@ -6,7 +6,7 @@ from enum import Enum
 
 
 class OrderStatus(str, Enum):
-    """وضعیت‌های مختلف سفارش"""
+    """وضعیت‌های مختلف سفارش - منبع واحد (states.py هم از اینجا import میکنه)"""
     PENDING = 'pending'
     WAITING_PAYMENT = 'waiting_payment'
     RECEIPT_SENT = 'receipt_sent'
@@ -15,6 +15,10 @@ class OrderStatus(str, Enum):
     REJECTED = 'rejected'
     EXPIRED = 'expired'
     SHIPPED = 'shipped'
+    
+    def __str__(self):
+        """برای استفاده راحت در queries"""
+        return self.value
 
 
 class DiscountType(str, Enum):
