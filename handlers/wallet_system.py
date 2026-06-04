@@ -81,7 +81,9 @@ async def view_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if expires_at:
             expiry_date = datetime.fromisoformat(expires_at)
-            if expiry_date > datetime.now():
+            # FIX: مقایسه با timezone یکسان برای جلوگیری از خطای TypeError
+            now = datetime.now(expiry_date.tzinfo) if expiry_date.tzinfo else datetime.now()
+            if expiry_date > now:
                 text += f"📅 تاریخ انقضا: {expiry_date.strftime('%Y/%m/%d')}\n"
             else:
                 text += "⚠️ اعتبار شما منقضی شده است!\n"
@@ -148,7 +150,9 @@ async def use_wallet_in_order(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.answer("❌ سفارش یافت نشد!", show_alert=True)
         return
     
-    _, _, _, _, _, final_price, _, status, _, _, _ = order
+    # FIX: order دارای ۱۲ فیلد است (id, user_id, items, total_price, discount_amount,
+    # final_price, discount_code, status, receipt_photo, shipping_method, created_at, expires_at)
+    _, _, _, _, _, final_price, _, status, _, _, _, _ = order
     
     if status not in ['pending', 'waiting_payment']:
         await query.answer("⚠️ این سفارش قابل پرداخت نیست!", show_alert=True)
