@@ -323,6 +323,14 @@ class Database:
                 FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
             )
         """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS bot_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
         
         conn.commit()
         self._create_indexes()
@@ -1146,6 +1154,34 @@ class Database:
                 'max_balance': 0, 'today_transactions': 0,
                 'today_charges': 0, 'today_withdrawals': 0,
             }
+
+    # ==================== تنظیمات ربات ====================
+
+    def get_setting(self, key: str, default=None):
+        """خواندن یک تنظیم از دیتابیس"""
+        try:
+            conn = self._get_conn()
+            cursor = conn.cursor()
+            cursor.execute("SELECT value FROM bot_settings WHERE key = ?", (key,))
+            row = cursor.fetchone()
+            return row[0] if row else default
+        except Exception as e:
+            logger.error(f"❌ خطا در get_setting({key}): {e}")
+            return default
+
+    def set_setting(self, key: str, value) -> bool:
+        """ذخیره یک تنظیم در دیتابیس"""
+        try:
+            with self.transaction() as cursor:
+                cursor.execute("""
+                    INSERT INTO bot_settings (key, value, updated_at)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+                """, (key, str(value), get_tehran_now()))
+            return True
+        except Exception as e:
+            logger.error(f"❌ خطا در set_setting({key}): {e}")
+            return False
 
     # ==================== آمار ====================
     

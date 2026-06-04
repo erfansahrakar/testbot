@@ -410,7 +410,7 @@ def main():
         remove_from_cart, clear_cart, handle_shipping_selection,
         final_confirm_order, final_edit_order, edit_address,
         back_to_packs, user_start, confirm_user_info, edit_user_info_for_order,
-        cart_increase, cart_decrease
+        cart_increase, cart_decrease, use_wallet_in_invoice
     )
     
     from handlers.user_discount import (
@@ -480,6 +480,15 @@ def main():
     application.bot_data['cache_manager'] = cache_manager
     application.bot_data['health_checker'] = health_checker
     application.bot_data['error_handler'] = enhanced_error_handler
+
+    # ✅ بارگذاری تنظیمات کش‌بک از دیتابیس (پس از ریستارت هم حفظ می‌شه)
+    try:
+        saved_cashback = db.get_setting('cashback_percent', '0')
+        application.bot_data['cashback_percent'] = float(saved_cashback)
+        logger.info(f"✅ کش‌بک از دیتابیس بارگذاری شد: {saved_cashback}%")
+    except Exception as e:
+        application.bot_data['cashback_percent'] = 0
+        logger.warning(f"⚠️ خطا در بارگذاری کش‌بک: {e}")
     
     setup_signal_handlers(application, db)
     
@@ -781,6 +790,7 @@ def main():
     
     application.add_handler(CallbackQueryHandler(handle_shipping_selection, pattern="^ship_"))
     application.add_handler(CallbackQueryHandler(final_confirm_order, pattern="^final_confirm$"))
+    application.add_handler(CallbackQueryHandler(use_wallet_in_invoice, pattern="^use_wallet_invoice:"))
     application.add_handler(CallbackQueryHandler(use_old_address, pattern="^use_old_address$"))
     application.add_handler(CallbackQueryHandler(use_new_address, pattern="^use_new_address$"))
     application.add_handler(CallbackQueryHandler(confirm_user_info, pattern="^confirm_user_info$"))

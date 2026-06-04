@@ -251,6 +251,20 @@ def final_confirmation_keyboard():
     return InlineKeyboardMarkup(keyboard)
 
 
+def final_confirmation_keyboard_with_wallet(order_id: int, wallet_balance: float, final_price: float):
+    """دکمه‌های تایید نهایی فاکتور با گزینه استفاده از کیف پول"""
+    keyboard = []
+    if wallet_balance > 0:
+        usable = min(wallet_balance, final_price)
+        keyboard.append([InlineKeyboardButton(
+            f"💰 استفاده از کیف پول ({usable:,.0f} تومان تخفیف)",
+            callback_data=f"use_wallet_invoice:{order_id}"
+        )])
+    keyboard.append([InlineKeyboardButton("✅ تایید و ثبت نهایی", callback_data="final_confirm")])
+    keyboard.append([InlineKeyboardButton("✏️ ویرایش اطلاعات", callback_data="final_edit")])
+    return InlineKeyboardMarkup(keyboard)
+
+
 def edit_address_keyboard():
     """دکمه ویرایش آدرس"""
     keyboard = [[InlineKeyboardButton("✏️ ویرایش آدرس", callback_data="edit_address")]]
