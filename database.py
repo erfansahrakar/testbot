@@ -305,8 +305,7 @@ class Database:
                 user_id INTEGER PRIMARY KEY,
                 balance REAL NOT NULL DEFAULT 0,
                 expires_at TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
 
@@ -375,6 +374,35 @@ class Database:
                 logger.info("✅ Migration سفارشات قدیمی انجام شد")
             
             logger.info("✅ بررسی migration‌ها تمام شد")
+
+            # ✅ اطمینان از وجود جدول bot_settings
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS bot_settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.commit()
+
+            # ✅ اگه جدول wallets با FOREIGN KEY ساخته شده، بازسازی بدون constraint
+            cursor.execute("PRAGMA foreign_key_list(wallets)")
+            fk_list = cursor.fetchall()
+            if fk_list:
+                logger.info("🔄 بازسازی جدول wallets بدون FOREIGN KEY...")
+                cursor.execute("ALTER TABLE wallets RENAME TO wallets_old")
+                cursor.execute("""
+                    CREATE TABLE wallets (
+                        user_id INTEGER PRIMARY KEY,
+                        balance REAL NOT NULL DEFAULT 0,
+                        expires_at TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                cursor.execute("INSERT INTO wallets SELECT * FROM wallets_old")
+                cursor.execute("DROP TABLE wallets_old")
+                conn.commit()
+                logger.info("✅ جدول wallets بازسازی شد")
         except Exception as e:
             logger.error(f"❌ خطا در مهاجرت: {e}")
     
