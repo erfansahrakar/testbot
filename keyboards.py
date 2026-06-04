@@ -13,7 +13,7 @@ def admin_main_keyboard():
         ["📦 سفارشات", "💳 تایید پرداخت‌ها"],
         ["🎁 مدیریت تخفیف‌ها", "📢 پیام همگانی"],
         ["📈 گزارش‌های تحلیلی", "💾 بکاپ دستی"],
-        ["🧹 پاکسازی دیتابیس"]
+        ["🏦 مدیریت کیف پول", "🧹 پاکسازی دیتابیس"]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -44,7 +44,7 @@ def user_main_keyboard():
     """منوی اصلی کاربر"""
     keyboard = [
         ["🛒 سبد خرید", "📦 سفارشات من"],
-        ["📍 آدرس ثبت شده من"],
+        ["💰 کیف پول من", "📍 آدرس ثبت شده من"],
         ["📞 تماس با ما", "ℹ️ راهنما"]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
