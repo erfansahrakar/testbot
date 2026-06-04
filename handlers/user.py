@@ -190,7 +190,13 @@ async def _refresh_cart_display(update: Update, context: ContextTypes.DEFAULT_TY
     else:
         text += f"💳 جمع کل: {total_price:,.0f} تومان"
     
-    await query.edit_message_text(text, reply_markup=cart_keyboard(cart), parse_mode='Markdown')
+    # بررسی موجودی کیف پول برای نمایش دکمه
+    wallet_balance = 0
+    wallet_info = db.get_wallet_balance(user_id)
+    if wallet_info and wallet_info[0] > 0:
+        wallet_balance = wallet_info[0]
+    
+    await query.edit_message_text(text, reply_markup=cart_keyboard(cart, wallet_balance, total_price), parse_mode='Markdown')
     return False
 
 
@@ -400,16 +406,22 @@ async def view_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     text += f"💳 جمع کل: {total_price:,.0f} تومان"
     
+    # بررسی موجودی کیف پول برای نمایش دکمه
+    wallet_balance = 0
+    wallet_info = db.get_wallet_balance(user_id)
+    if wallet_info and wallet_info[0] > 0:
+        wallet_balance = wallet_info[0]
+    
     if update.callback_query:
         await update.callback_query.answer()
         await update.callback_query.message.reply_text(
             text,
-            reply_markup=cart_keyboard(cart)
+            reply_markup=cart_keyboard(cart, wallet_balance, total_price)
         )
     else:
         await update.message.reply_text(
             text,
-            reply_markup=cart_keyboard(cart)
+            reply_markup=cart_keyboard(cart, wallet_balance, total_price)
         )
 
 
@@ -1135,7 +1147,11 @@ async def final_confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE
     user_id = update.effective_user.id
 
     # ==================== کسر کیف پول (اگه کاربر انتخاب کرده بود) ====================
+    # هم از سبد خرید و هم از فاکتور بررسی می‌کنیم
     wallet_deducted = context.user_data.pop('wallet_use_for_order', None)
+    wallet_cart = context.user_data.pop('wallet_use_in_cart', None)
+    if not wallet_deducted and wallet_cart:
+        wallet_deducted = {'order_id': order_id, 'amount': wallet_cart['amount']}
     wallet_msg = ""
     if wallet_deducted and wallet_deducted.get('order_id') == order_id:
         usable = wallet_deducted['amount']
@@ -1240,6 +1256,53 @@ async def use_wallet_in_invoice(update: Update, context: ContextTypes.DEFAULT_TY
         )
     except Exception:
         pass
+
+
+async def use_wallet_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """استفاده از کیف پول از طریق سبد خرید (قبل از نهایی کردن)"""
+    query = update.callback_query
+    await query.answer()
+
+    user_id = query.from_user.id
+    db = context.bot_data['db']
+
+    wallet_info = db.get_wallet_balance(user_id)
+    if not wallet_info or wallet_info[0] <= 0:
+        await query.answer("❌ موجودی کیف پول شما کافی نیست!", show_alert=True)
+        return
+
+    from datetime import datetime as _dt
+    expires_at_w = wallet_info[1]
+    wallet_valid = True
+    if expires_at_w:
+        exp = _dt.fromisoformat(expires_at_w) if isinstance(expires_at_w, str) else expires_at_w
+        if exp.tzinfo is None:
+            from database import TEHRAN_TZ
+            exp = TEHRAN_TZ.localize(exp)
+        from database import get_tehran_now
+        wallet_valid = get_tehran_now() < exp
+
+    if not wallet_valid:
+        await query.answer("⚠️ اعتبار کیف پول شما منقضی شده است!", show_alert=True)
+        return
+
+    wallet_balance = wallet_info[0]
+
+    # محاسبه جمع کل سبد برای تعیین مقدار قابل استفاده
+    cart = db.get_cart(user_id)
+    total_price = 0
+    if cart:
+        for item in cart:
+            _, _, _, pack_qty, pack_price, item_qty = item
+            unit_price = pack_price / pack_qty
+            total_price += unit_price * item_qty
+
+    usable = min(wallet_balance, total_price) if total_price > 0 else wallet_balance
+
+    # ذخیره در user_data برای استفاده موقع نهایی‌سازی سفارش
+    context.user_data['wallet_use_in_cart'] = {'amount': usable}
+
+    await query.answer(f"✅ {usable:,.0f} تومان از کیف پول موقع ثبت سفارش کسر می‌شود!", show_alert=True)
 
 
 async def final_edit_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
