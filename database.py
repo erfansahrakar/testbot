@@ -318,8 +318,7 @@ class Database:
                 description TEXT,
                 order_id INTEGER,
                 admin_id INTEGER,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
 
@@ -403,6 +402,29 @@ class Database:
                 cursor.execute("DROP TABLE wallets_old")
                 conn.commit()
                 logger.info("✅ جدول wallets بازسازی شد")
+
+            # ✅ اگه جدول wallet_transactions با FOREIGN KEY ساخته شده، بازسازی بدون constraint
+            cursor.execute("PRAGMA foreign_key_list(wallet_transactions)")
+            fk_list2 = cursor.fetchall()
+            if fk_list2:
+                logger.info("🔄 بازسازی جدول wallet_transactions بدون FOREIGN KEY...")
+                cursor.execute("ALTER TABLE wallet_transactions RENAME TO wallet_transactions_old")
+                cursor.execute("""
+                    CREATE TABLE wallet_transactions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER NOT NULL,
+                        amount REAL NOT NULL,
+                        type TEXT NOT NULL,
+                        description TEXT,
+                        order_id INTEGER,
+                        admin_id INTEGER,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                cursor.execute("INSERT INTO wallet_transactions SELECT * FROM wallet_transactions_old")
+                cursor.execute("DROP TABLE wallet_transactions_old")
+                conn.commit()
+                logger.info("✅ جدول wallet_transactions بازسازی شد")
         except Exception as e:
             logger.error(f"❌ خطا در مهاجرت: {e}")
     
