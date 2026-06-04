@@ -467,7 +467,7 @@ def _refund_wallet_if_used(db, order_id: int):
         conn = db._get_conn()
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT ABS(amount) FROM wallet_transactions WHERE order_id=? AND type='debit' AND description LIKE '%کیف پول%'",
+            "SELECT ABS(amount) FROM wallet_transactions WHERE order_id=? AND type='debit'",
             (order_id,)
         )
         row = cursor.fetchone()
