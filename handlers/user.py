@@ -539,8 +539,15 @@ async def finalize_order_start(update: Update, context: ContextTypes.DEFAULT_TYP
     db = context.bot_data['db']
     user = db.get_user(user_id)
     
+    # FIX: اگر کاربر در دیتابیس نباشد، ثبت می‌کنیم
+    if not user:
+        tg_user = update.effective_user
+        db.add_user(tg_user.id, tg_user.username, tg_user.first_name)
+        user = db.get_user(user_id)
+    
     # بررسی اطلاعات کاربر
     has_full_info = (
+        user is not None and
         user[3] and  # full_name
         user[4] and  # phone
         len(user) > 6 and user[6]  # address
