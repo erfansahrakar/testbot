@@ -510,8 +510,10 @@ async def admin_cashback_percent_received(update: Update, context: ContextTypes.
             await update.message.reply_text("❌ درصد باید بین 0 تا 50 باشد!")
             return WALLET_CASHBACK_PERCENT
 
-        # ذخیره در bot_data برای استفاده بعدی
+        # ذخیره در bot_data و دیتابیس (برای ماندگاری پس از ریستارت)
         context.bot_data['cashback_percent'] = percent
+        db = context.bot_data['db']
+        db.set_setting('cashback_percent', percent)
 
         from keyboards import admin_main_keyboard
 

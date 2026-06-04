@@ -1036,11 +1036,12 @@ async def show_final_invoice(update, context, order_id):
     items = json.loads(items_json)
     user = db.get_user(user_id)
 
-    # ==================== کسر خودکار کیف پول ====================
-    wallet_msg = ""
+    # ==================== نمایش موجودی کیف پول (بدون کسر خودکار) ====================
+    wallet_info_text = ""
+    wallet_balance = 0
+    from datetime import datetime as _dt
     wallet_info = db.get_wallet_balance(user_id)
     if wallet_info and wallet_info[0] > 0:
-        from datetime import datetime as _dt
         expires_at_w = wallet_info[1]
         wallet_valid = True
         if expires_at_w:
@@ -1050,22 +1051,10 @@ async def show_final_invoice(update, context, order_id):
                 exp = TEHRAN_TZ.localize(exp)
             from database import get_tehran_now
             wallet_valid = get_tehran_now() < exp
-
         if wallet_valid:
             wallet_balance = wallet_info[0]
             usable = min(wallet_balance, final_price)
-            if usable > 0:
-                success = db.deduct_wallet(
-                    user_id=user_id,
-                    amount=usable,
-                    description=f"پرداخت سفارش #{order_id}",
-                    order_id=order_id
-                )
-                if success:
-                    new_final = final_price - usable
-                    db.update_order_wallet_payment(order_id, usable, new_final)
-                    final_price = new_final
-                    wallet_msg = f"\n💰 <b>{usable:,.0f} تومان</b> از کیف پول شما کسر شد."
+            wallet_info_text = f"\n💰 <b>موجودی کیف پول شما:</b> {wallet_balance:,.0f} تومان (حداکثر {usable:,.0f} تومان قابل استفاده)\n"
     # =============================================================
 
     invoice_text = "📋 <b>فاکتور نهایی سفارش</b>\n"
@@ -1084,8 +1073,8 @@ async def show_final_invoice(update, context, order_id):
         if discount_code:
             invoice_text += f"🎫 <b>کد تخفیف:</b> {_html_escape(discount_code)}\n"
 
-    if wallet_msg:
-        invoice_text += wallet_msg + "\n"
+    if wallet_info_text:
+        invoice_text += wallet_info_text
 
     invoice_text += f"💳 <b>مبلغ قابل پرداخت:</b> {final_price:,.0f} تومان\n"
 
@@ -1111,21 +1100,23 @@ async def show_final_invoice(update, context, order_id):
     invoice_text += "═" * 25 + "\n\n"
     invoice_text += "❓ <b>آیا همه اطلاعات مورد تایید است؟</b>"
 
-    from keyboards import final_confirmation_keyboard
+    from keyboards import final_confirmation_keyboard_with_wallet
     context.user_data['confirming_order'] = order_id
+    
+    keyboard = final_confirmation_keyboard_with_wallet(order_id, wallet_balance, final_price)
     
     if query:
         await query.message.reply_text(
             invoice_text,
             parse_mode='HTML',
-            reply_markup=final_confirmation_keyboard()
+            reply_markup=keyboard
         )
     else:
         await context.bot.send_message(
             user_id,
             invoice_text,
             parse_mode='HTML',
-            reply_markup=final_confirmation_keyboard()
+            reply_markup=keyboard
         )
 
 
@@ -1141,9 +1132,29 @@ async def final_confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     db = context.bot_data['db']
+    user_id = update.effective_user.id
+
+    # ==================== کسر کیف پول (اگه کاربر انتخاب کرده بود) ====================
+    wallet_deducted = context.user_data.pop('wallet_use_for_order', None)
+    wallet_msg = ""
+    if wallet_deducted and wallet_deducted.get('order_id') == order_id:
+        usable = wallet_deducted['amount']
+        success = db.deduct_wallet(
+            user_id=user_id,
+            amount=usable,
+            description=f"پرداخت سفارش #{order_id}",
+            order_id=order_id
+        )
+        if success:
+            order = db.get_order(order_id)
+            final_price = order[5]
+            new_final = final_price - usable
+            db.update_order_wallet_payment(order_id, usable, new_final)
+            wallet_msg = f"\n💰 {usable:,.0f} تومان از کیف پول کسر شد."
+    # =================================================================================
+
     db.update_order_status(order_id, 'confirmed')
     
-    user_id = update.effective_user.id
     context.bot_data.pop(f'pending_shipping_{user_id}', None)
     context.user_data.pop('confirming_order', None)
     context.user_data.pop('wallet_balance_for_order', None)
@@ -1151,7 +1162,7 @@ async def final_confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE
     await query.message.reply_text(
         "✅ **سفارش شما ثبت نهایی شد!**\n\n"
         "📦 سفارش شما به‌زودی ارسال خواهد شد.\n\n"
-        "🙏 از خرید شما سپاسگزاریم!",
+        "🙏 از خرید شما سپاسگزاریم!" + wallet_msg,
         parse_mode='Markdown',
         reply_markup=user_main_keyboard()
     )
@@ -1161,6 +1172,74 @@ async def final_confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE
         ADMIN_ID,
         f"✅ سفارش #{order_id} توسط کاربر تایید نهایی شد و آماده ارسال است."
     )
+
+
+async def use_wallet_in_invoice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """استفاده از کیف پول در فاکتور (انتخابی توسط کاربر)"""
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data.split(":")
+    order_id = int(data[1])
+    user_id = query.from_user.id
+    db = context.bot_data['db']
+
+    order = db.get_order(order_id)
+    if not order:
+        await query.answer("❌ سفارش یافت نشد!", show_alert=True)
+        return
+
+    final_price = order[5]
+
+    wallet_info = db.get_wallet_balance(user_id)
+    if not wallet_info or wallet_info[0] <= 0:
+        await query.answer("❌ موجودی کیف پول شما کافی نیست!", show_alert=True)
+        return
+
+    from datetime import datetime as _dt
+    expires_at_w = wallet_info[1]
+    wallet_valid = True
+    if expires_at_w:
+        exp = _dt.fromisoformat(expires_at_w) if isinstance(expires_at_w, str) else expires_at_w
+        if exp.tzinfo is None:
+            from database import TEHRAN_TZ
+            exp = TEHRAN_TZ.localize(exp)
+        from database import get_tehran_now
+        wallet_valid = get_tehran_now() < exp
+
+    if not wallet_valid:
+        await query.answer("⚠️ اعتبار کیف پول شما منقضی شده است!", show_alert=True)
+        return
+
+    wallet_balance = wallet_info[0]
+    usable = min(wallet_balance, final_price)
+
+    # ذخیره در user_data برای استفاده موقع تأیید نهایی
+    context.user_data['wallet_use_for_order'] = {'order_id': order_id, 'amount': usable}
+
+    await query.answer(f"✅ {usable:,.0f} تومان از کیف پول موقع تأیید نهایی کسر می‌شود!", show_alert=True)
+
+    # نمایش مجدد فاکتور با مبلغ بعد از کسر
+    new_final = final_price - usable
+    text = query.message.text or query.message.caption or ""
+
+    # آپدیت متن فاکتور برای نمایش مبلغ جدید
+    try:
+        new_text = text
+        import re
+        new_text = re.sub(
+            r'💳 <b>مبلغ قابل پرداخت:</b> [\d٬,]+ تومان',
+            f'💰 <b>کسر از کیف پول:</b> -{usable:,.0f} تومان\n💳 <b>مبلغ قابل پرداخت:</b> {new_final:,.0f} تومان',
+            new_text
+        )
+        from keyboards import final_confirmation_keyboard
+        await query.message.edit_text(
+            new_text,
+            parse_mode='HTML',
+            reply_markup=final_confirmation_keyboard()
+        )
+    except Exception:
+        pass
 
 
 async def final_edit_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
