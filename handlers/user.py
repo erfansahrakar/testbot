@@ -810,7 +810,15 @@ async def create_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         discount_code = context.user_data.get('applied_discount_code')
         discount_amount = context.user_data.get('discount_amount', 0)
-        final_price = total_price - discount_amount
+        
+        # ✅ اضافه کردن کیف پول به تخفیف
+        wallet_cart = context.user_data.get('wallet_use_in_cart')
+        wallet_amount = wallet_cart['amount'] if wallet_cart else 0
+        
+        total_discount = discount_amount + wallet_amount
+        final_price = total_price - total_discount
+        if final_price < 0:
+            final_price = 0
         
         try:
             # ✅ FIX: استفاده از Transaction برای atomicity
@@ -821,7 +829,7 @@ async def create_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     (user_id, items, total_price, discount_amount, final_price, discount_code, expires_at) 
                     VALUES (?, ?, ?, ?, ?, ?, datetime('now', '+1 day'))
                 """, (user_id, json.dumps(items, ensure_ascii=False), total_price, 
-                      discount_amount, final_price, discount_code))
+                      total_discount, final_price, discount_code))
                 order_id = cursor.lastrowid
                 
                 # 2. ثبت استفاده از تخفیف (اگر وجود داشت)
@@ -846,10 +854,22 @@ async def create_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if discount_code:
                 log_discount_usage(user_id, discount_code, discount_amount)
             
+            # ✅ کسر کیف پول (اگه انتخاب شده بود)
+            if wallet_amount > 0:
+                success = db.deduct_wallet(
+                    user_id=user_id,
+                    amount=wallet_amount,
+                    description=f"پرداخت سفارش #{order_id}",
+                    order_id=order_id
+                )
+                if not success:
+                    logger.warning(f"⚠️ کسر کیف پول برای سفارش {order_id} ناموفق بود")
+            
             # پاکسازی context
             context.user_data.pop('applied_discount_code', None)
             context.user_data.pop('discount_amount', None)
             context.user_data.pop('discount_id', None)
+            context.user_data.pop('wallet_use_in_cart', None)
             
             # Invalidate cache
             db._invalidate_cache(f"cart:{user_id}")
@@ -922,7 +942,15 @@ async def create_order_from_message(update: Update, context: ContextTypes.DEFAUL
         
         discount_code = context.user_data.get('applied_discount_code')
         discount_amount = context.user_data.get('discount_amount', 0)
-        final_price = total_price - discount_amount
+        
+        # ✅ اضافه کردن کیف پول به تخفیف
+        wallet_cart = context.user_data.get('wallet_use_in_cart')
+        wallet_amount = wallet_cart['amount'] if wallet_cart else 0
+        
+        total_discount = discount_amount + wallet_amount
+        final_price = total_price - total_discount
+        if final_price < 0:
+            final_price = 0
         
         try:
             # ✅ FIX: استفاده از Transaction
@@ -933,7 +961,7 @@ async def create_order_from_message(update: Update, context: ContextTypes.DEFAUL
                     (user_id, items, total_price, discount_amount, final_price, discount_code, expires_at) 
                     VALUES (?, ?, ?, ?, ?, ?, datetime('now', '+1 day'))
                 """, (user_id, json.dumps(items, ensure_ascii=False), total_price, 
-                      discount_amount, final_price, discount_code))
+                      total_discount, final_price, discount_code))
                 order_id = cursor.lastrowid
                 
                 # 2. ثبت استفاده از تخفیف
@@ -958,10 +986,22 @@ async def create_order_from_message(update: Update, context: ContextTypes.DEFAUL
             if discount_code:
                 log_discount_usage(user_id, discount_code, discount_amount)
             
+            # ✅ کسر کیف پول (اگه انتخاب شده بود)
+            if wallet_amount > 0:
+                success = db.deduct_wallet(
+                    user_id=user_id,
+                    amount=wallet_amount,
+                    description=f"پرداخت سفارش #{order_id}",
+                    order_id=order_id
+                )
+                if not success:
+                    logger.warning(f"⚠️ کسر کیف پول برای سفارش {order_id} ناموفق بود")
+            
             # پاکسازی
             context.user_data.pop('applied_discount_code', None)
             context.user_data.pop('discount_amount', None)
             context.user_data.pop('discount_id', None)
+            context.user_data.pop('wallet_use_in_cart', None)
             
             db._invalidate_cache(f"cart:{user_id}")
             db._invalidate_cache("stats:")
