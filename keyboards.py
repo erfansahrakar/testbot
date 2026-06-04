@@ -69,7 +69,7 @@ def product_inline_keyboard(product_id, packs):
     return InlineKeyboardMarkup(keyboard)
 
 
-def cart_keyboard(cart_items):
+def cart_keyboard(cart_items, wallet_balance: float = 0, total_price: float = 0):
     """دکمه‌های سبد خرید"""
     keyboard = []
     
@@ -97,6 +97,14 @@ def cart_keyboard(cart_items):
         keyboard.append(row)
     
     keyboard.append([InlineKeyboardButton("🎁 کد تخفیف دارم", callback_data="apply_discount")])
+    
+    if wallet_balance > 0:
+        usable = min(wallet_balance, total_price) if total_price > 0 else wallet_balance
+        keyboard.append([InlineKeyboardButton(
+            f"💰 استفاده از کیف پول ({usable:,.0f} تومان تخفیف)",
+            callback_data="use_wallet_cart"
+        )])
+    
     keyboard.append([InlineKeyboardButton("✅ نهایی کردن سفارش", callback_data="finalize_order")])
     keyboard.append([InlineKeyboardButton("🗑 خالی کردن سبد", callback_data="clear_cart")])
     
@@ -252,14 +260,8 @@ def final_confirmation_keyboard():
 
 
 def final_confirmation_keyboard_with_wallet(order_id: int, wallet_balance: float, final_price: float):
-    """دکمه‌های تایید نهایی فاکتور با گزینه استفاده از کیف پول"""
+    """دکمه‌های تایید نهایی فاکتور (دکمه کیف پول در سبد خرید است)"""
     keyboard = []
-    if wallet_balance > 0:
-        usable = min(wallet_balance, final_price)
-        keyboard.append([InlineKeyboardButton(
-            f"💰 استفاده از کیف پول ({usable:,.0f} تومان تخفیف)",
-            callback_data=f"use_wallet_invoice:{order_id}"
-        )])
     keyboard.append([InlineKeyboardButton("✅ تایید و ثبت نهایی", callback_data="final_confirm")])
     keyboard.append([InlineKeyboardButton("✏️ ویرایش اطلاعات", callback_data="final_edit")])
     return InlineKeyboardMarkup(keyboard)

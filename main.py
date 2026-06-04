@@ -410,7 +410,7 @@ def main():
         remove_from_cart, clear_cart, handle_shipping_selection,
         final_confirm_order, final_edit_order, edit_address,
         back_to_packs, user_start, confirm_user_info, edit_user_info_for_order,
-        cart_increase, cart_decrease, use_wallet_in_invoice
+        cart_increase, cart_decrease, use_wallet_in_invoice, use_wallet_cart
     )
     
     from handlers.user_discount import (
@@ -791,6 +791,7 @@ def main():
     application.add_handler(CallbackQueryHandler(handle_shipping_selection, pattern="^ship_"))
     application.add_handler(CallbackQueryHandler(final_confirm_order, pattern="^final_confirm$"))
     application.add_handler(CallbackQueryHandler(use_wallet_in_invoice, pattern="^use_wallet_invoice:"))
+    application.add_handler(CallbackQueryHandler(use_wallet_cart, pattern="^use_wallet_cart$"))
     application.add_handler(CallbackQueryHandler(use_old_address, pattern="^use_old_address$"))
     application.add_handler(CallbackQueryHandler(use_new_address, pattern="^use_new_address$"))
     application.add_handler(CallbackQueryHandler(confirm_user_info, pattern="^confirm_user_info$"))
