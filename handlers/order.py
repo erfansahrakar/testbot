@@ -272,6 +272,7 @@ async def handle_delete_order(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.edit_message_text("❌ سفارش یافت نشد یا متعلق به شما نیست!")
         return
     
+    _refund_wallet_if_used(db, order_id)
     success = db.delete_order(order_id)
     
     if success:
@@ -450,6 +451,37 @@ async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"✅ سفارش {order_id} توسط کاربر {user_id} تایید شد")
 
 
+
+def _refund_wallet_if_used(db, order_id: int):
+    """اگه سفارش با کیف پول پرداخت شده، مبلغ رو برگردون"""
+    order = db.get_order(order_id)
+    if not order:
+        return
+    user_id = order[1]
+    discount_amount = order[4]
+    total_price = order[3]
+    # بررسی اینکه آیا تخفیف کیف پول اعمال شده
+    # discount_amount شامل هر دو کد تخفیف و کیف پوله
+    # wallet_transactions رو چک میکنیم
+    try:
+        conn = db._get_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT ABS(amount) FROM wallet_transactions WHERE order_id=? AND type='debit' AND description LIKE '%کیف پول%'",
+            (order_id,)
+        )
+        row = cursor.fetchone()
+        if row and row[0] > 0:
+            wallet_amount = row[0]
+            db.add_wallet_balance(
+                user_id=user_id,
+                amount=wallet_amount,
+                description=f"بازگشت کیف پول - لغو سفارش #{order_id}"
+            )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"❌ خطا در بازگشت کیف پول سفارش {order_id}: {e}")
+
 async def reject_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """رد سفارش توسط ادمین"""
     query = update.callback_query
@@ -460,6 +492,8 @@ async def reject_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     db.update_order_status(order_id, OrderStatus.REJECTED)
     log_admin_action(ADMIN_ID, f"reject_order:{order_id}")
+    
+    _refund_wallet_if_used(db, order_id)
     
     order = db.get_order(order_id)
     user_id = order[1]
@@ -909,6 +943,8 @@ async def reject_full_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     db.update_order_status(order_id, OrderStatus.REJECTED)
     
+    _refund_wallet_if_used(db, order_id)
+    
     order = db.get_order(order_id)
     user_id = order[1]
     
@@ -1213,6 +1249,7 @@ async def admin_delete_not_shipped_order(update: Update, context: ContextTypes.D
         await query.answer("❌ سفارش یافت نشد!", show_alert=True)
         return
     
+    _refund_wallet_if_used(db, order_id)
     success = db.delete_order(order_id)
     
     if success:
