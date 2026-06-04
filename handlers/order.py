@@ -1000,15 +1000,22 @@ async def confirm_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if cashback_percent and cashback_percent > 0:
         cashback_amount = round(final_price * cashback_percent / 100)
         if cashback_amount > 0:
-            db.add_wallet_balance(
-                user_id=user_id,
-                amount=cashback_amount,
-                description=f"کش‌بک {cashback_percent}% سفارش #{order_id}",
-            )
-            cashback_msg = (
-                f"\n\n💎 {cashback_percent}% کش‌بک این سفارش ({cashback_amount:,.0f} تومان) "
-                f"به کیف پول شما اضافه شد!"
-            )
+            try:
+                success = db.add_wallet_balance(
+                    user_id=user_id,
+                    amount=cashback_amount,
+                    description=f"کش‌بک {cashback_percent}% سفارش #{order_id}",
+                )
+                if success:
+                    cashback_msg = (
+                        f"\n\n💎 {cashback_percent}% کش‌بک این سفارش ({cashback_amount:,.0f} تومان) "
+                        f"به کیف پول شما اضافه شد!"
+                    )
+                    logger.info(f"✅ کش‌بک {cashback_amount} تومان برای user {user_id} ثبت شد")
+                else:
+                    logger.error(f"❌ add_wallet_balance برگشت False برای user {user_id}")
+            except Exception as e:
+                logger.error(f"❌ خطا در ثبت کش‌بک برای user {user_id}: {e}")
     # =============================================
 
     from keyboards import shipping_method_keyboard
