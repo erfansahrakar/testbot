@@ -991,15 +991,33 @@ async def confirm_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     order = db.get_order(order_id)
     user_id = order[1]
+    final_price = order[5]
     log_payment(order_id, user_id, "confirmed")
-    
+
+    # ==================== کش‌بک ====================
+    cashback_percent = context.bot_data.get('cashback_percent', 0)
+    cashback_msg = ""
+    if cashback_percent and cashback_percent > 0:
+        cashback_amount = round(final_price * cashback_percent / 100)
+        if cashback_amount > 0:
+            db.add_wallet_balance(
+                user_id=user_id,
+                amount=cashback_amount,
+                description=f"کش‌بک {cashback_percent}% سفارش #{order_id}",
+            )
+            cashback_msg = (
+                f"\n\n💎 {cashback_percent}% کش‌بک این سفارش ({cashback_amount:,.0f} تومان) "
+                f"به کیف پول شما اضافه شد!"
+            )
+    # =============================================
+
     from keyboards import shipping_method_keyboard
     
-    # ✅ FIX: اضافه کردن parse_mode=None
     await context.bot.send_message(
         user_id,
         "✅ رسید شما تایید شد!\n\n"
-        "📦 لطفاً نحوه ارسال خود را انتخاب کنید:",
+        "📦 لطفاً نحوه ارسال خود را انتخاب کنید:"
+        + cashback_msg,
         reply_markup=shipping_method_keyboard(),
         parse_mode=None
     )
