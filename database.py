@@ -297,6 +297,32 @@ class Database:
                 FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
             )
         """)
+
+        # ==================== Wallet Tables ====================
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS wallets (
+                user_id INTEGER PRIMARY KEY,
+                balance REAL NOT NULL DEFAULT 0,
+                expires_at TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS wallet_transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                amount REAL NOT NULL,
+                type TEXT NOT NULL,
+                description TEXT,
+                order_id INTEGER,
+                admin_id INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+            )
+        """)
         
         conn.commit()
         self._create_indexes()
@@ -361,6 +387,8 @@ class Database:
             "CREATE INDEX IF NOT EXISTS idx_packs_product_id ON packs(product_id)",
             "CREATE INDEX IF NOT EXISTS idx_temp_discount_user ON temp_discount_codes(user_id)",
             "CREATE INDEX IF NOT EXISTS idx_discount_usage_user_code ON discount_usage(user_id, discount_code)",
+            "CREATE INDEX IF NOT EXISTS idx_wallet_transactions_user ON wallet_transactions(user_id)",
+            "CREATE INDEX IF NOT EXISTS idx_wallet_transactions_created ON wallet_transactions(created_at DESC)",
         ]
         
         for index_sql in indexes:
@@ -970,6 +998,155 @@ class Database:
             logger.error(f"❌ Error cleaning up temp discounts: {e}")
             return 0
     
+    # ==================== کیف پول ====================
+
+    def get_wallet_balance(self, user_id: int):
+        """دریافت موجودی و تاریخ انقضای کیف پول کاربر"""
+        try:
+            conn = self._get_conn()
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT balance, expires_at FROM wallets WHERE user_id = ?",
+                (user_id,)
+            )
+            return cursor.fetchone()
+        except Exception as e:
+            logger.error(f"❌ خطا در get_wallet_balance برای user {user_id}: {e}")
+            return None
+
+    def add_wallet_balance(self, user_id: int, amount: float, description: str,
+                           admin_id: int = None, expires_at=None) -> bool:
+        """افزایش موجودی کیف پول کاربر"""
+        try:
+            with self.transaction() as cursor:
+                # ایجاد یا آپدیت wallet
+                cursor.execute("""
+                    INSERT INTO wallets (user_id, balance, expires_at, updated_at)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(user_id) DO UPDATE SET
+                        balance = balance + excluded.balance,
+                        expires_at = COALESCE(excluded.expires_at, wallets.expires_at),
+                        updated_at = excluded.updated_at
+                """, (user_id, amount, expires_at, get_tehran_now()))
+
+                # ثبت تراکنش
+                cursor.execute("""
+                    INSERT INTO wallet_transactions (user_id, amount, type, description, admin_id)
+                    VALUES (?, ?, 'credit', ?, ?)
+                """, (user_id, amount, description, admin_id))
+
+            logger.info(f"✅ Wallet charged: user={user_id}, amount={amount}")
+            return True
+        except Exception as e:
+            logger.error(f"❌ خطا در add_wallet_balance برای user {user_id}: {e}")
+            return False
+
+    def deduct_wallet(self, user_id: int, amount: float, description: str,
+                      order_id: int = None) -> bool:
+        """کسر از موجودی کیف پول کاربر"""
+        try:
+            with self.transaction() as cursor:
+                # چک موجودی
+                cursor.execute("SELECT balance FROM wallets WHERE user_id = ?", (user_id,))
+                row = cursor.fetchone()
+                if not row or row[0] < amount:
+                    return False
+
+                cursor.execute("""
+                    UPDATE wallets SET balance = balance - ?, updated_at = ?
+                    WHERE user_id = ?
+                """, (amount, get_tehran_now(), user_id))
+
+                cursor.execute("""
+                    INSERT INTO wallet_transactions (user_id, amount, type, description, order_id)
+                    VALUES (?, ?, 'debit', ?, ?)
+                """, (user_id, -amount, description, order_id))
+
+            logger.info(f"✅ Wallet deducted: user={user_id}, amount={amount}")
+            return True
+        except Exception as e:
+            logger.error(f"❌ خطا در deduct_wallet برای user {user_id}: {e}")
+            return False
+
+    def get_wallet_transactions(self, user_id: int, limit: int = 10):
+        """دریافت تاریخچه تراکنش‌های کیف پول"""
+        try:
+            conn = self._get_conn()
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, amount, type, description, created_at
+                FROM wallet_transactions
+                WHERE user_id = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+            """, (user_id, limit))
+            return cursor.fetchall()
+        except Exception as e:
+            logger.error(f"❌ خطا در get_wallet_transactions برای user {user_id}: {e}")
+            return []
+
+    def update_order_wallet_payment(self, order_id: int, wallet_amount: float,
+                                    new_final_price: float) -> bool:
+        """ثبت پرداخت با کیف پول روی سفارش"""
+        try:
+            with self.transaction() as cursor:
+                cursor.execute("""
+                    UPDATE orders
+                    SET discount_amount = discount_amount + ?,
+                        final_price = ?
+                    WHERE id = ?
+                """, (wallet_amount, new_final_price, order_id))
+            return True
+        except Exception as e:
+            logger.error(f"❌ خطا در update_order_wallet_payment برای order {order_id}: {e}")
+            return False
+
+    def get_wallet_statistics(self) -> dict:
+        """آمار کلی کیف پول‌ها"""
+        try:
+            conn = self._get_conn()
+            cursor = conn.cursor()
+
+            cursor.execute("SELECT COUNT(*), SUM(balance), AVG(balance), MAX(balance) FROM wallets WHERE balance > 0")
+            row = cursor.fetchone()
+
+            today_start = get_tehran_now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+            cursor.execute("""
+                SELECT COUNT(*) FROM wallet_transactions
+                WHERE DATE(created_at) = DATE(?)
+            """, (today_start,))
+            today_tx = cursor.fetchone()[0]
+
+            cursor.execute("""
+                SELECT COALESCE(SUM(amount), 0) FROM wallet_transactions
+                WHERE type = 'credit' AND DATE(created_at) = DATE(?)
+            """, (today_start,))
+            today_charges = cursor.fetchone()[0]
+
+            cursor.execute("""
+                SELECT COALESCE(SUM(ABS(amount)), 0) FROM wallet_transactions
+                WHERE type = 'debit' AND DATE(created_at) = DATE(?)
+            """, (today_start,))
+            today_withdrawals = cursor.fetchone()[0]
+
+            return {
+                'total_users': row[0] or 0,
+                'total_balance': row[1] or 0,
+                'avg_balance': row[2] or 0,
+                'max_balance': row[3] or 0,
+                'today_transactions': today_tx,
+                'today_charges': today_charges,
+                'today_withdrawals': today_withdrawals,
+            }
+        except Exception as e:
+            logger.error(f"❌ خطا در get_wallet_statistics: {e}")
+            return {
+                'total_users': 0, 'total_balance': 0, 'avg_balance': 0,
+                'max_balance': 0, 'today_transactions': 0,
+                'today_charges': 0, 'today_withdrawals': 0,
+            }
+
     # ==================== آمار ====================
     
     def get_statistics(self):
