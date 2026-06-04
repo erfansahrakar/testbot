@@ -1193,7 +1193,6 @@ async def final_confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def use_wallet_in_invoice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """استفاده از کیف پول در فاکتور (انتخابی توسط کاربر)"""
     query = update.callback_query
-    await query.answer()
 
     data = query.data.split(":")
     order_id = int(data[1])
@@ -1261,7 +1260,7 @@ async def use_wallet_in_invoice(update: Update, context: ContextTypes.DEFAULT_TY
 async def use_wallet_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """استفاده از کیف پول از طریق سبد خرید (قبل از نهایی کردن)"""
     query = update.callback_query
-    await query.answer()
+    # query.answer() را اینجا نمی‌زنیم - آخر تابع با پیام می‌زنیم
 
     user_id = query.from_user.id
     db = context.bot_data['db']
