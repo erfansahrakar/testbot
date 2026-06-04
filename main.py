@@ -844,6 +844,9 @@ def main():
         admin_wallet_menu, admin_wallet_report,
         admin_charge_wallet_start, admin_charge_wallet_user_received,
         admin_charge_wallet_amount_received,
+        admin_gift_wallet_start, admin_gift_user_received,
+        admin_gift_type_received, admin_gift_value_received,
+        admin_cashback_start, admin_cashback_percent_received,
     )
 
     wallet_charge_conv = ConversationHandler(
@@ -857,6 +860,30 @@ def main():
         per_chat=True,
     )
     application.add_handler(wallet_charge_conv)
+
+    wallet_gift_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(admin_gift_wallet_start, pattern="^wallet_admin:gift$")],
+        states={
+            102: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_gift_user_received)],
+            103: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_gift_type_received)],
+            104: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_gift_value_received)],
+        },
+        fallbacks=[],
+        per_user=True,
+        per_chat=True,
+    )
+    application.add_handler(wallet_gift_conv)
+
+    wallet_cashback_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(admin_cashback_start, pattern="^wallet_admin:cashback$")],
+        states={
+            106: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_cashback_percent_received)],
+        },
+        fallbacks=[],
+        per_user=True,
+        per_chat=True,
+    )
+    application.add_handler(wallet_cashback_conv)
 
     application.add_handler(CallbackQueryHandler(view_wallet,         pattern="^wallet:view$"))
     application.add_handler(CallbackQueryHandler(view_wallet_history, pattern="^wallet:history$"))
