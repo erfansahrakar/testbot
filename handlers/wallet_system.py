@@ -314,6 +314,224 @@ async def admin_charge_wallet_amount_received(update: Update, context: ContextTy
         await update.message.reply_text("❌ لطفاً یک عدد معتبر وارد کنید!")
         return WALLET_CHARGE_AMOUNT
 
+async def admin_gift_wallet_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """شروع اعتبار هدیه"""
+    query = update.callback_query
+    await query.answer()
+
+    from keyboards import cancel_keyboard
+
+    await query.message.reply_text(
+        "🎁 **اعتبار هدیه**\n\n"
+        "لطفاً User ID مشتری را وارد کنید:\n"
+        "(یا عدد 0 برای همه کاربران)",
+        parse_mode='Markdown',
+        reply_markup=cancel_keyboard()
+    )
+    return WALLET_GIFT_USER_ID
+
+
+async def admin_gift_user_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """دریافت User ID برای هدیه"""
+    if update.message.text == "❌ لغو":
+        from handlers.admin import admin_start
+        await admin_start(update, context)
+        return ConversationHandler.END
+
+    try:
+        user_id = int(update.message.text)
+        context.user_data['gift_user_id'] = user_id
+
+        from keyboards import cancel_keyboard
+
+        keyboard = [
+            ["💰 مبلغ ثابت"],
+            ["📊 درصدی"],
+            ["❌ لغو"]
+        ]
+        from telegram import ReplyKeyboardMarkup
+        await update.message.reply_text(
+            "نوع اعتبار هدیه را انتخاب کنید:",
+            reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        )
+        return WALLET_GIFT_TYPE
+
+    except ValueError:
+        await update.message.reply_text("❌ لطفاً یک عدد معتبر وارد کنید!")
+        return WALLET_GIFT_USER_ID
+
+
+async def admin_gift_type_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """دریافت نوع هدیه"""
+    text = update.message.text
+
+    if text == "❌ لغو":
+        from handlers.admin import admin_start
+        await admin_start(update, context)
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    if text == "💰 مبلغ ثابت":
+        context.user_data['gift_type'] = 'fixed'
+        label = "مبلغ (تومان)"
+    elif text == "📊 درصدی":
+        context.user_data['gift_type'] = 'percent'
+        label = "درصد (1 تا 100)"
+    else:
+        await update.message.reply_text("❌ گزینه نامعتبر!")
+        return WALLET_GIFT_TYPE
+
+    from keyboards import cancel_keyboard
+    await update.message.reply_text(
+        f"💡 {label} را وارد کنید:",
+        reply_markup=cancel_keyboard()
+    )
+    return WALLET_GIFT_VALUE
+
+
+async def admin_gift_value_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """دریافت مقدار هدیه و اعمال"""
+    if update.message.text == "❌ لغو":
+        from handlers.admin import admin_start
+        await admin_start(update, context)
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    try:
+        value = float(update.message.text.replace(',', ''))
+        gift_type = context.user_data.get('gift_type')
+        target_user_id = context.user_data.get('gift_user_id')
+
+        if gift_type == 'percent' and not (1 <= value <= 100):
+            await update.message.reply_text("❌ درصد باید بین 1 تا 100 باشد!")
+            return WALLET_GIFT_VALUE
+
+        db = context.bot_data['db']
+
+        if target_user_id == 0:
+            # هدیه به همه کاربران
+            users = db.get_all_users()
+            count = 0
+            for user in users:
+                uid = user[0]
+                if gift_type == 'fixed':
+                    amount = value
+                else:
+                    wallet = db.get_wallet_balance(uid)
+                    bal = wallet[0] if wallet else 0
+                    amount = bal * value / 100
+
+                if amount > 0:
+                    db.add_wallet_balance(
+                        user_id=uid,
+                        amount=amount,
+                        description=f"اعتبار هدیه از ادمین",
+                        admin_id=update.effective_user.id
+                    )
+                    count += 1
+
+            await update.message.reply_text(
+                f"✅ اعتبار هدیه به {count} کاربر اعمال شد.",
+                reply_markup=__import__('keyboards').admin_main_keyboard()
+            )
+        else:
+            if gift_type == 'fixed':
+                amount = value
+            else:
+                wallet = db.get_wallet_balance(target_user_id)
+                bal = wallet[0] if wallet else 0
+                amount = bal * value / 100
+
+            success = db.add_wallet_balance(
+                user_id=target_user_id,
+                amount=amount,
+                description="اعتبار هدیه از ادمین",
+                admin_id=update.effective_user.id
+            )
+
+            if success:
+                await update.message.reply_text(
+                    f"✅ **اعتبار هدیه اعمال شد!**\n\n"
+                    f"👤 کاربر: {target_user_id}\n"
+                    f"💰 مبلغ: {format_price(amount)} تومان",
+                    parse_mode='Markdown',
+                    reply_markup=__import__('keyboards').admin_main_keyboard()
+                )
+                try:
+                    await context.bot.send_message(
+                        chat_id=target_user_id,
+                        text=f"🎁 **اعتبار هدیه دریافت کردید!**\n\n"
+                             f"💰 مبلغ: {format_price(amount)} تومان\n"
+                             f"✨ از این اعتبار در خریدهای بعدی استفاده کنید!",
+                        parse_mode='Markdown'
+                    )
+                except:
+                    pass
+            else:
+                await update.message.reply_text("❌ خطا در اعمال هدیه!")
+
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    except ValueError:
+        await update.message.reply_text("❌ لطفاً یک عدد معتبر وارد کنید!")
+        return WALLET_GIFT_VALUE
+
+
+async def admin_cashback_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """تنظیم کش‌بک"""
+    query = update.callback_query
+    await query.answer()
+
+    from keyboards import cancel_keyboard
+
+    await query.message.reply_text(
+        "💎 **تنظیم کش‌بک**\n\n"
+        "درصد کش‌بک را وارد کنید (1 تا 50):\n\n"
+        "💡 کش‌بک بعد از تایید هر سفارش به‌صورت اعتبار به کاربر داده می‌شود.\n"
+        "عدد 0 = غیرفعال کردن کش‌بک",
+        parse_mode='Markdown',
+        reply_markup=cancel_keyboard()
+    )
+    return WALLET_CASHBACK_PERCENT
+
+
+async def admin_cashback_percent_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """دریافت درصد کش‌بک و ذخیره"""
+    if update.message.text == "❌ لغو":
+        from handlers.admin import admin_start
+        await admin_start(update, context)
+        return ConversationHandler.END
+
+    try:
+        percent = float(update.message.text.replace(',', ''))
+
+        if percent < 0 or percent > 50:
+            await update.message.reply_text("❌ درصد باید بین 0 تا 50 باشد!")
+            return WALLET_CASHBACK_PERCENT
+
+        # ذخیره در bot_data برای استفاده بعدی
+        context.bot_data['cashback_percent'] = percent
+
+        from keyboards import admin_main_keyboard
+
+        if percent == 0:
+            msg = "✅ کش‌بک **غیرفعال** شد."
+        else:
+            msg = (
+                f"✅ **کش‌بک تنظیم شد!**\n\n"
+                f"💎 درصد کش‌بک: {percent}%\n\n"
+                f"از این به بعد بعد از تایید هر سفارش، {percent}% مبلغ به اعتبار کاربر اضافه می‌شود."
+            )
+
+        await update.message.reply_text(msg, parse_mode='Markdown', reply_markup=admin_main_keyboard())
+        return ConversationHandler.END
+
+    except ValueError:
+        await update.message.reply_text("❌ لطفاً یک عدد معتبر وارد کنید!")
+        return WALLET_CASHBACK_PERCENT
+
+
 async def admin_wallet_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """گزارش کلی اعتبارهای کاربران"""
     query = update.callback_query
