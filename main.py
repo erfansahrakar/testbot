@@ -845,13 +845,12 @@ def main():
         admin_charge_wallet_start, admin_charge_wallet_user_received,
         admin_charge_wallet_amount_received,
     )
-    from telegram.ext import ConversationHandler, MessageHandler, filters as tg_filters
 
     wallet_charge_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(admin_charge_wallet_start, pattern="^wallet_admin:charge$")],
         states={
-            100: [MessageHandler(tg_filters.TEXT & ~tg_filters.COMMAND, admin_charge_wallet_user_received)],
-            101: [MessageHandler(tg_filters.TEXT & ~tg_filters.COMMAND, admin_charge_wallet_amount_received)],
+            100: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_charge_wallet_user_received)],
+            101: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_charge_wallet_amount_received)],
         },
         fallbacks=[],
         per_user=True,
