@@ -194,6 +194,9 @@ async def handle_text_messages(update: Update, context):
             return await admin_dashboard(update, context)
         elif text == "🧹 پاکسازی دیتابیس":
             return await manual_cleanup(update, context)
+        elif text == "🏦 مدیریت کیف پول":
+            from handlers.wallet_system import admin_wallet_menu
+            return await admin_wallet_menu(update, context)
         elif text == "⚙️ سفارشی‌سازی پیام‌ها":
             if MESSAGE_CUSTOMIZER_AVAILABLE:
                 return await customize_messages_menu(update, context)
@@ -208,6 +211,9 @@ async def handle_text_messages(update: Update, context):
     # دستورات کاربر
     if text == "🛒 سبد خرید":
         await view_cart(update, context)
+    elif text == "💰 کیف پول من":
+        from handlers.wallet_system import view_wallet
+        await view_wallet(update, context)
     elif text == "📦 سفارشات من":
         await view_user_orders(update, context)
     elif text == "📍 آدرس ثبت شده من":
@@ -831,6 +837,33 @@ def main():
             logger.warning(f"Could not delete message: {e}")
     
     application.add_handler(CallbackQueryHandler(back_to_admin_handler, pattern="^back_to_admin$"))
+
+    # ==================== Wallet Handlers ====================
+    from handlers.wallet_system import (
+        view_wallet, view_wallet_history, use_wallet_in_order,
+        admin_wallet_menu, admin_wallet_report,
+        admin_charge_wallet_start, admin_charge_wallet_user_received,
+        admin_charge_wallet_amount_received,
+    )
+    from telegram.ext import ConversationHandler, MessageHandler, filters as tg_filters
+
+    wallet_charge_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(admin_charge_wallet_start, pattern="^wallet_admin:charge$")],
+        states={
+            100: [MessageHandler(tg_filters.TEXT & ~tg_filters.COMMAND, admin_charge_wallet_user_received)],
+            101: [MessageHandler(tg_filters.TEXT & ~tg_filters.COMMAND, admin_charge_wallet_amount_received)],
+        },
+        fallbacks=[],
+        per_user=True,
+        per_chat=True,
+    )
+    application.add_handler(wallet_charge_conv)
+
+    application.add_handler(CallbackQueryHandler(view_wallet,         pattern="^wallet:view$"))
+    application.add_handler(CallbackQueryHandler(view_wallet_history, pattern="^wallet:history$"))
+    application.add_handler(CallbackQueryHandler(use_wallet_in_order, pattern="^use_wallet:"))
+    application.add_handler(CallbackQueryHandler(admin_wallet_menu,   pattern="^wallet_admin:menu$"))
+    application.add_handler(CallbackQueryHandler(admin_wallet_report, pattern="^wallet_admin:report$"))
     
     # ✅ Feature #4: Export handlers
     if EXPORT_AVAILABLE:
